@@ -53,6 +53,7 @@ export default function InputPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
+  const [showHistory, setShowHistory] = useState(false)
   const predictedYield = result?.response?.predicted_yield_kg_per_m2
 
   const updateField = (key, value) => {
@@ -87,33 +88,61 @@ export default function InputPage() {
     }
 
     try {
-      setLoading(true)
-      const response = await predictGrowth(payload)
-      setResult({ response, payload })
+      setLoading(true);
+      // 1. Send a request to the back end
+      const response = await predictGrowth(payload); 
+      setResult({ response, payload });
+  
+      // 2. Save the successful result of this time to the localStorage of your browser
+      const newRecord = {
+        time: new Date().toISOString(),
+        input: payload,
+        output: response.predicted_yield_kg_per_m2 
+      };
+  
+      // Read the old record, add the new record and save it back
+      const existingHistory = JSON.parse(localStorage.getItem('history') || '[]');
+      localStorage.setItem('history', JSON.stringify([newRecord, ...existingHistory]));
+  
     } catch (e) {
-      setError(e.message || 'Prediction failed. Please try again.')
+      setError(e.message || 'Prediction failed.');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-200">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center gap-3">
-          <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-brand-600">
-            <Leaf className="w-5 h-5 text-white" />
+        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-brand-600">
+              <Leaf className="w-5 h-5 text-white" />
+            </div>
+
+            <div>
+              <h1 className="text-lg font-semibold text-slate-900 leading-tight">
+                Tomato Yield Predictor
+              </h1>
+              <p className="text-xs text-slate-500">
+                Spring Boot + Python model integration
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-lg font-semibold text-slate-900 leading-tight">Tomato Yield Predictor</h1>
-            <p className="text-xs text-slate-500">Spring Boot + Python model integration</p>
-          </div>
+
+          <button
+            onClick={() => setShowHistory(true)}
+            className="text-sm px-4 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800"
+          >
+            History
+          </button>
+
         </div>
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-10 space-y-8">
         <div className="rounded-2xl bg-gradient-to-r from-brand-600 to-brand-700 p-6 text-white shadow-md">
-          <p className="text-sm font-medium text-brand-100 mb-1">Feature 1 - Yield Forecast</p>
+          <p className="text-sm font-medium text-brand-100 mb-1">Feature 134 - Yield Forecast</p>
           <h2 className="text-2xl font-bold mb-2">Predict Tomato Yield From Your Web Form</h2>
           <p className="text-brand-100 text-sm max-w-xl">
             Fill in the greenhouse and fertilizer data below. The values you enter on this page are
@@ -300,6 +329,73 @@ export default function InputPage() {
           </section>
         )}
       </main>
+      {showHistory && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+          
+          {/* modal box */}
+          <div className="bg-white w-[90%] max-w-5xl rounded-2xl shadow-xl overflow-hidden">
+            
+            {/* header */}
+            <div className="flex justify-between items-center px-6 py-4 border-b">
+              <h2 className="font-semibold text-lg">Prediction History</h2>
+
+              <button
+                onClick={() => setShowHistory(false)}
+                className="text-slate-500 hover:text-black"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* content */}
+            <div className="p-6 max-h-[70vh] overflow-auto">
+              {(() => {
+                const data = JSON.parse(localStorage.getItem('history') || '[]')
+
+                if (data.length === 0) {
+                  return (
+                    <p className="text-center text-slate-400 py-10">
+                      No history yet
+                    </p>
+                  )
+                }
+
+                return (
+                  <table className="w-full text-sm border">
+                    <thead className="bg-slate-100">
+                      <tr>
+                        <th className="p-3 text-left">Time</th>
+                        <th className="p-3 text-left">Variety</th>
+                        <th className="p-3 text-left">Temp</th>
+                        <th className="p-3 text-left">Humidity</th>
+                        <th className="p-3 text-left">CO2</th>
+                        <th className="p-3 text-left">Yield</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {data.map((item, i) => (
+                        <tr key={i} className="border-t">
+                          <td className="p-3">
+                            {new Date(item.time).toLocaleString()}
+                          </td>
+                          <td className="p-3">{item.input.variety}</td>
+                          <td className="p-3">{item.input.avgTemperatureC}</td>
+                          <td className="p-3">{item.input.humidityPercent}</td>
+                          <td className="p-3">{item.input.co2Ppm}</td>
+                          <td className="p-3 font-bold text-brand-600">
+                            {item.output?.toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
