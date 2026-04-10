@@ -24,7 +24,15 @@ if (-not (Test-Path $pythonVenvDir)) {
 }
 
 if (-not (Test-Path $pythonExe)) {
-    Write-Error "Python virtual environment is incomplete. Expected interpreter at $pythonExe"
+    Write-Warning "Python virtual environment is incomplete. Recreating it at $pythonVenvDir ..."
+    if (Test-Path $pythonVenvDir) {
+        Remove-Item -Recurse -Force $pythonVenvDir
+    }
+    & $pythonLauncher.Source -m venv $pythonVenvDir
+}
+
+if (-not (Test-Path $pythonExe)) {
+    Write-Error "Python virtual environment could not be created successfully. Expected interpreter at $pythonExe"
 }
 
 if (-not (Test-Path $pythonRequirements)) {
