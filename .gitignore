@@ -61,11 +61,11 @@ yarn-error.log*
 pnpm-debug.log*
 
 # Python
-model_service/.venv/
-model_service/__pycache__/
-model_service/*.pyc
-model_service/*.pyo
-model_service/*.pyd
+.venv/
+venv/
+*/.venv/
+__pycache__/
+*.py[cod]
 
 # Local env files
 .env
