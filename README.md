@@ -1,33 +1,50 @@
 # Tomato Yield Predictor
 
-Spring Boot + React + Python model integration for tomato yield prediction.
+A full-stack tomato yield prediction project built with Spring Boot, React, Vite, and a Python model service.
 
-Users enter greenhouse and crop-management data on the webpage, Spring Boot forwards the request to a local Python model API, and the predicted yield is displayed on the same page.
+Users enter greenhouse and crop-management data in the web UI. The frontend sends the request to Spring Boot, Spring Boot forwards it to the Python model API, and the predicted yield is returned to the browser.
 
-## Tech Stack
+## Stack
 
 - Java 21
 - Spring Boot 3.5.13
-- React + Vite
-- Python FastAPI
+- React 18
+- Vite 5
+- Python 3.12
+- FastAPI
 - scikit-learn / pandas / numpy
-- H2 database for local development
+- H2 for local development
 
 ## Project Structure
 
 ```text
-demo/
-  src/                    Spring Boot backend
-  frontend/               React source code
-  model_service/          Python model API
-  start-services.cmd      One-click startup script
-  start-services.ps1      PowerShell startup script
-  pom.xml                 Maven config
+Tomato-Yield-Predictor-demo/
+  frontend/                    React + Vite source
+  model_service/               Python FastAPI model service
+  src/main/java/               Spring Boot backend code
+  src/main/resources/static/   Frontend files served by Spring Boot
+  start-services.cmd           One-click startup entry for Windows
+  start-services.ps1           PowerShell startup script
+  pom.xml                      Maven / Spring Boot config
 ```
 
-## Prerequisites
+## What Runs Where
 
-Install these before running the project:
+- `5173` or `5174`: Vite development server
+- `8080`: Spring Boot backend and packaged frontend
+- `8001`: Python model service
+
+Request flow:
+
+```text
+Browser -> Spring Boot (/api/predict) -> Python FastAPI (/predict) -> Spring Boot -> Browser
+```
+
+When using Vite dev mode, the frontend proxies `/api` to `http://localhost:8080`.
+
+## Environment Requirements
+
+Install these first:
 
 - JDK 21
 - Python 3.12
@@ -42,48 +59,40 @@ node -v
 npm -v
 ```
 
-## First-Time Setup
+## Quick Start
 
-### 1. Set up the Python model environment
+### 1. Clone the repository
 
 ```powershell
-cd C:\demo\model_service
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+git clone <your-repository-url>
+cd Tomato-Yield-Predictor-demo
 ```
 
 ### 2. Install frontend dependencies
 
 ```powershell
-cd C:\demo\frontend
+cd frontend
 npm install
+cd ..
 ```
 
-### 3. Optional: verify Maven wrapper
-
-```powershell
-cd C:\demo
-$env:MAVEN_USER_HOME="C:\demo\.m2"
-.\mvnw.cmd -v
-```
-
-## Start the Application
-
-### Option A: one-click start
+### 3. Run the project with one command
 
 From the project root:
 
 ```powershell
-cd your workspace
 .\start-services.cmd
 ```
 
-This will:
+What this script does:
 
-1. Start the Python model service on `http://127.0.0.1:8001`
-2. Start Spring Boot on `http://localhost:8080`
-3. Open the browser automatically
+- checks for Python on the machine
+- creates `model_service/.venv` if it does not exist
+- recreates the virtual environment if it is incomplete
+- installs Python dependencies from `model_service/requirements.txt`
+- starts the Python model service on `127.0.0.1:8001`
+- starts Spring Boot on `localhost:8080`
+- opens the application in the browser
 
 Open:
 
@@ -91,22 +100,25 @@ Open:
 http://localhost:8080/#/
 ```
 
-### Option B: start services manually
+## Manual Startup
 
-#### Start Python model service
+Use this if you want to run each service separately.
+
+### Start the Python model service
 
 ```powershell
-cd C:\demo\model_service
+cd model_service
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m uvicorn api:app --host 127.0.0.1 --port 8001
 ```
 
-#### Start Spring Boot
+### Start Spring Boot
 
-Open another terminal:
+Open another terminal in the project root:
 
 ```powershell
-cd C:\demo
-$env:MAVEN_USER_HOME="C:\demo\.m2"
+$env:MAVEN_USER_HOME="$PWD\.m2"
 .\mvnw.cmd spring-boot:run
 ```
 
@@ -116,38 +128,139 @@ Open:
 http://localhost:8080/#/
 ```
 
-## Rebuild the Frontend
+### Start the Vite development server
 
-If you change files in `frontend/src`, rebuild the frontend and restart Spring Boot.
+Use this when working on files under `frontend/src` and you want hot reload.
 
 ```powershell
-cd C:\demo\frontend
-npm run build
+cd frontend
+npm run dev
 ```
 
-The built assets are then used by Spring Boot from `src/main/resources/static`.
-
-## API Flow
-
-Web input goes through this path:
+Open the URL shown by Vite, usually:
 
 ```text
-Browser -> Spring Boot (/api/predict) -> Python FastAPI (/predict) -> Spring Boot -> Browser
+http://localhost:5173/
 ```
 
-### Spring Boot endpoint
+If `5173` is already in use, Vite will move to another port such as `5174`.
+
+## Development Notes
+
+### When to use Vite vs Spring Boot
+
+Use Vite if:
+
+- you are editing `frontend/src`
+- you want instant frontend hot reload
+
+Use Spring Boot at `8080` if:
+
+- you want to test the packaged version of the app
+- you want the full backend + frontend integration through the Spring Boot server
+
+### Important difference
+
+- `http://localhost:5173` or `5174`: Vite development frontend
+- `http://localhost:8080`: Spring Boot serving built static frontend files
+
+If you only change `frontend/src` but do not rebuild, Spring Boot will still serve the old packaged frontend.
+
+## Rebuild Frontend for Spring Boot
+
+If you want Spring Boot to use the latest frontend changes, rebuild the frontend and copy the generated files into `src/main/resources/static`.
+
+### Build the frontend
+
+```powershell
+cd frontend
+npm run build
+cd ..
+```
+
+### Copy the latest build into Spring Boot static resources
+
+```powershell
+Remove-Item -Path .\src\main\resources\static\assets\* -Force
+Copy-Item -Path .\frontend\dist\index.html -Destination .\src\main\resources\static\index.html -Force
+Copy-Item -Path .\frontend\dist\assets\* -Destination .\src\main\resources\static\assets -Force
+```
+
+After that, restart Spring Boot and refresh `http://localhost:8080/#/`.
+
+## Deployment Notes
+
+This project is structured as three parts:
+
+- React frontend
+- Spring Boot backend
+- Python model service
+
+### Local deployment
+
+The simplest local deployment is:
+
+1. install Java, Python, Node.js
+2. run `npm install` in `frontend`
+3. run `.\start-services.cmd`
+
+### Deploying for other users or another machine
+
+The new machine must have:
+
+- Java 21
+- Python 3.12
+- Node.js + npm
+
+Then:
+
+1. clone the repository
+2. run `npm install` inside `frontend`
+3. run `.\start-services.cmd`
+
+The script will handle Python virtual environment setup automatically.
+
+### Production-style deployment idea
+
+For a more production-oriented setup:
+
+- build the frontend with `npm run build`
+- copy the built assets into `src/main/resources/static`
+- package or run the Spring Boot app
+- run the Python model service separately on the configured host and port
+
+At the moment, the backend expects the Python service here:
+
+```text
+http://127.0.0.1:8001
+```
+
+This is configured in:
+
+- [src/main/resources/application.properties](src/main/resources/application.properties)
+
+If you move the Python service elsewhere, update:
+
+```properties
+python.api.base-url=http://127.0.0.1:8001
+```
+
+## API Endpoints
+
+### Spring Boot
 
 ```text
 POST /api/predict
 ```
 
-### Python model endpoint
+### Python model service
 
 ```text
-POST http://127.0.0.1:8001/predict
+GET  /health
+POST /predict
 ```
 
-## Example Prediction Request
+## Example Request
 
 ```json
 {
@@ -168,39 +281,66 @@ POST http://127.0.0.1:8001/predict
 }
 ```
 
-## Common Problems
+## Troubleshooting
 
-### Port 8080 already in use
+### `start-services.cmd` not found
 
-```powershell
-netstat -ano | findstr :8080
-Stop-Process -Id <PID>
-```
-
-### Python service not found
-
-Make sure the Python model is running:
+Make sure you are in the project root:
 
 ```powershell
-cd C:\demo\model_service
-.\.venv\Scripts\python.exe -m uvicorn api:app --host 127.0.0.1 --port 8001
+cd path\to\Tomato-Yield-Predictor-demo
+.\start-services.cmd
 ```
 
-### Frontend changes not visible
+### `npm run dev` says `package.json` not found
 
-1. Run `npm run build` in `frontend`
-2. Restart Spring Boot
-3. Hard refresh the browser with `Ctrl + F5`
+Run it inside `frontend`:
 
-## Before Uploading to GitHub
+```powershell
+cd frontend
+npm run dev
+```
 
-Do not upload generated or local-only files such as:
+### `Port 5173 is in use`
+
+This is normal. Vite will move to another port automatically.
+
+### Python virtual environment errors
+
+The startup script now recreates a broken `.venv` automatically. If needed, you can still remove it manually:
+
+```powershell
+Remove-Item -Recurse -Force .\model_service\.venv
+.\start-services.cmd
+```
+
+### Frontend changes are not visible on `8080`
+
+You are probably viewing the Spring Boot packaged frontend, not Vite hot reload.
+
+Fix:
+
+1. run `npm run dev` in `frontend` for hot reload
+2. or rebuild and copy the frontend into `src/main/resources/static`
+
+### Spring Boot cannot contact Python
+
+Make sure the Python service is running:
+
+```powershell
+http://127.0.0.1:8001/health
+```
+
+## Git Hygiene
+
+Generated and local-only files should not be committed:
 
 - `.m2/`
 - `target/`
 - `frontend/node_modules/`
+- `frontend/dist/`
 - `model_service/.venv/`
-- `python-installer.exe`
+- `__pycache__/`
+- `src/main/resources/static/assets/`
 
-If needed, delete them before pushing.
-
+Keep source code and configuration in Git, but avoid committing local caches and generated files.
