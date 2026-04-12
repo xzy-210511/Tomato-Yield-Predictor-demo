@@ -1,0 +1,85 @@
+HELP.md
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Logs
+*.log
+
+# Java / Maven
+target/
+.mvn/wrapper/maven-wrapper.jar
+.m2/
+
+# Spring Boot
+*.class
+
+# Node / React
+frontend/node_modules/
+frontend/dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Python
+.venv/
+venv/
+*/.venv/
+__pycache__/
+*.py[cod]
+
+# Local env files
+.env
+.env.*
+!.env.example
+
+# Archives / installers
+*.zip
+*.exe
+*.msi
+
+# Project-specific generated/static build copies
+src/main/resources/static/assets/
+
+# Optional: if you only want to keep frontend source,
+# ignore copied static entry too
+# src/main/resources/static/index.html
