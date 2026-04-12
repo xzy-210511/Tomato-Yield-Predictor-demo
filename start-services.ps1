@@ -2,6 +2,10 @@ $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $pythonServiceDir = Join-Path $projectRoot 'model_service'
+$frontendDir = Join-Path $projectRoot 'frontend'
+$frontendDistDir = Join-Path $frontendDir 'dist'
+$staticDir = Join-Path $projectRoot 'src\main\resources\static'
+$staticAssetsDir = Join-Path $staticDir 'assets'
 $pythonExe = Join-Path $pythonServiceDir '.venv\Scripts\python.exe'
 $pythonVenvDir = Join-Path $pythonServiceDir '.venv'
 $pythonRequirements = Join-Path $pythonServiceDir 'requirements.txt'
@@ -41,6 +45,42 @@ if (-not (Test-Path $pythonRequirements)) {
 
 if (-not (Test-Path $mavenWrapper)) {
     Write-Error "Maven wrapper not found at $mavenWrapper"
+}
+
+if (Test-Path $frontendDir) {
+    $npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
+    $npmPath = $null
+    if (-not $npmCommand) {
+        $nodeInstallNpm = Join-Path $env:ProgramFiles 'nodejs\npm.cmd'
+        if (Test-Path $nodeInstallNpm) {
+            $npmPath = $nodeInstallNpm
+            $env:Path = "$(Split-Path -Parent $nodeInstallNpm);$env:Path"
+        }
+    } else {
+        $npmPath = $npmCommand.Source
+    }
+
+    if (-not $npmPath) {
+        Write-Error 'npm not found. Please install Node.js 20+ and reopen your terminal.'
+    }
+
+    Write-Host 'Building React frontend for Spring Boot static resources ...'
+    & $npmPath run build --prefix $frontendDir
+
+    if (-not (Test-Path $frontendDistDir)) {
+        Write-Error "Frontend build output not found at $frontendDistDir"
+    }
+
+    if (-not (Test-Path $staticDir)) {
+        New-Item -ItemType Directory -Path $staticDir | Out-Null
+    }
+
+    if (Test-Path $staticAssetsDir) {
+        Remove-Item -Recurse -Force $staticAssetsDir
+    }
+
+    Copy-Item -Path (Join-Path $frontendDistDir 'index.html') -Destination (Join-Path $staticDir 'index.html') -Force
+    Copy-Item -Path (Join-Path $frontendDistDir 'assets') -Destination $staticAssetsDir -Recurse -Force
 }
 
 Write-Host 'Installing Python model dependencies ...'
