@@ -133,16 +133,6 @@ export default function ResultsPage() {
             <p className="text-base text-brand-500 font-medium mt-2">kg per square meter</p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm text-slate-600">
-            <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">
-              <p className="font-semibold text-slate-800 mb-1">Where the result came from</p>
-              <p>Spring Boot received your webpage data, called the Python FastAPI service, and returned the model output here.</p>
-            </div>
-            <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">
-              <p className="font-semibold text-slate-800 mb-1">What to do next</p>
-              <p>You can store these inputs in your database later, compare runs, and keep building a prediction history.</p>
-            </div>
-          </div>
         </div>
 
         <div className="flex justify-end pb-6">

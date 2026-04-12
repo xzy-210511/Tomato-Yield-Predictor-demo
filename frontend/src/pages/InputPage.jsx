@@ -301,20 +301,6 @@ export default function InputPage() {
                 <p className="text-base text-brand-500 font-medium mt-2">kg per square meter</p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm text-slate-600">
-                <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">
-                  <p className="font-semibold text-slate-800 mb-1">Where the result came from</p>
-                  <p>Spring Boot received your webpage data, called the Python FastAPI service, and returned the model output here.</p>
-                </div>
-                <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">
-                  <p className="font-semibold text-slate-800 mb-1">Input Summary</p>
-                  <p>
-                    Variety: {result.payload.variety}, Avg Temp: {result.payload.avgTemperatureC} C, Humidity: {result.payload.humidityPercent} %,
-                    CO2: {result.payload.co2Ppm} ppm
-                  </p>
-                </div>
-              </div>
-
               <div className="flex justify-end pt-6">
                 <button
                   onClick={() => setResult(null)}
