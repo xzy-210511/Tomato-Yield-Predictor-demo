@@ -128,6 +128,53 @@ Open:
 http://localhost:8080/#/
 ```
 
+## Database
+
+The application now has a minimal prediction-history database.
+
+By default, local runs use an in-memory H2 database so the app can still start without installing PostgreSQL. For a persistent database, use the PostgreSQL profile.
+
+### Stored table
+
+Flyway creates this table automatically when Spring Boot starts:
+
+```text
+prediction_records
+```
+
+It stores the submitted greenhouse inputs, the predicted yield, a model version label, and the creation time.
+
+### Start PostgreSQL with Docker
+
+From the project root:
+
+```powershell
+docker compose up -d postgres
+```
+
+The default local PostgreSQL settings are:
+
+```text
+database: tomato_yield
+username: tomato_app
+password: tomato_app
+port: 5432
+```
+
+### Run Spring Boot against PostgreSQL
+
+Start the Python service first, then start Spring Boot with the `postgres` profile:
+
+```powershell
+$env:SPRING_PROFILES_ACTIVE="postgres"
+$env:DB_URL="jdbc:postgresql://localhost:5432/tomato_yield"
+$env:DB_USERNAME="tomato_app"
+$env:DB_PASSWORD="tomato_app"
+.\mvnw.cmd spring-boot:run
+```
+
+When `/api/predict` returns successfully, Spring Boot saves one row into `prediction_records`.
+
 ### Start the Vite development server
 
 Use this when working on files under `frontend/src` and you want hot reload.
@@ -342,5 +389,6 @@ Generated and local-only files should not be committed:
 - `model_service/.venv/`
 - `__pycache__/`
 - `src/main/resources/static/assets/`
+- `python-installer.exe`
 
 Keep source code and configuration in Git, but avoid committing local caches and generated files.

@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: tomato-yield-postgres
+    environment:
+      POSTGRES_DB: tomato_yield
+      POSTGRES_USER: tomato_app
+      POSTGRES_PASSWORD: tomato_app
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tomato_app -d tomato_yield"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:

@@ -12,11 +12,15 @@ import org.springframework.web.client.RestClient;
 public class PredictionService {
 
     private final RestClient restClient;
+    private final PredictionRecordRepository predictionRecordRepository;
 
-    public PredictionService(@Value("${python.api.base-url}") final String pythonApiBaseUrl) {
+    public PredictionService(
+            @Value("${python.api.base-url}") final String pythonApiBaseUrl,
+            final PredictionRecordRepository predictionRecordRepository) {
         this.restClient = RestClient.builder()
                 .baseUrl(pythonApiBaseUrl)
                 .build();
+        this.predictionRecordRepository = predictionRecordRepository;
     }
 
     public PredictionResponse predict(final PredictionRequest request) {
@@ -35,12 +39,18 @@ public class PredictionService {
         pythonPayload.put("pest_severity", request.getPestSeverity());
         pythonPayload.put("pH", request.getPH());
         pythonPayload.put("variety", request.getVariety());
-        return restClient.post()
+        final PredictionResponse response = restClient.post()
                 .uri("/predict")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(pythonPayload)
                 .retrieve()
                 .body(PredictionResponse.class);
+
+        final PredictionRecord savedRecord = predictionRecordRepository.save(
+                PredictionRecord.from(request, response)
+        );
+        response.setPredictionRecordId(savedRecord.getId());
+        return response;
     }
 
 }
