@@ -290,7 +290,6 @@ export default function InputPage() {
 
         {result && (
           <section className="space-y-6">
-            {/* result details here... (keeping same as your original) */}
             <div className="rounded-2xl bg-gradient-to-r from-brand-600 to-brand-700 px-6 py-5 text-white shadow-md flex items-center gap-4">
               <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
                 <Activity className="w-5 h-5 text-white" />
