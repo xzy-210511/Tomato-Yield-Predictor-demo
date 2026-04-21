@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { Leaf, FlaskConical, AlertCircle, X, Activity, CheckCircle2, RefreshCw } from 'lucide-react'
+import { useNavigate } from 'react-router-dom' 
+import { Leaf, FlaskConical, AlertCircle, X, Activity, CheckCircle2, RefreshCw, HelpCircle, LogOut } from 'lucide-react'
 import { predictGrowth } from '../api/predict'
+import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend } from 'recharts'
 
 const INITIAL_FORM = {
   avgTemperatureC: '25',
@@ -48,12 +50,40 @@ const FIELD_GROUPS = [
   },
 ]
 
+const FIELD_INFO = {
+  avgTemperatureC: "Average greenhouse temperature (°C). Tip: Measure at plant height.",
+  minTemperatureC: "Lowest daily temperature. Tip: Usually occurs just before dawn.",
+  maxTemperatureC: "Highest daily temperature. Tip: Ensure proper ventilation above 30°C.",
+  humidityPercent: "Relative humidity (%). Ideal: 60–80%. Tip: Higher humidity increases disease risk.",
+  co2Ppm: "CO₂ concentration. Tip: 800-1000 ppm can significantly boost yield.",
+  lightIntensityLux: "Light intensity. Tip: Measure at the top of the canopy.",
+  photoperiodHours: "Daily light hours. Tip: Tomatoes typically need 12-14 hours.",
+  irrigationMm: "Daily water amount. Tip: Adjust based on soil moisture depth.",
+  fertilizerNKgHa: "Nitrogen. Tip: Essential for leaf and stem growth.",
+  fertilizerPKgHa: "Phosphorus. Tip: Crucial for root and flower development.",
+  fertilizerKKgHa: "Potassium. Tip: Important for fruit quality and sugar content.",
+  pestSeverity: "0–5 scale. 0 = None, 5 = Severe. Tip: Check underside of leaves regularly.",
+  pH: "Soil/Solution pH. Ideal: 6.0–6.8. Tip: Affects nutrient availability.",
+  variety: "Tomato variety. Different types have varying yield potentials."
+}
+
 export default function InputPage() {
   const [form, setForm] = useState(INITIAL_FORM)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
   const [showHistory, setShowHistory] = useState(false)
+  const [selected, setSelected] = useState([]) 
+  const [compareMode, setCompareMode] = useState(false)
+
+  const navigate = useNavigate() // Initialize navigate function here
+  const user = localStorage.getItem('user')
+
+  const logout = () => {
+    localStorage.removeItem('user')
+    window.location.reload()
+  }
+
   const predictedYield = result?.response?.predicted_yield_kg_per_m2
 
   const updateField = (key, value) => {
@@ -61,6 +91,11 @@ export default function InputPage() {
   }
 
   const handlePredict = async () => {
+    if (!user) {
+      setError('Please login first to use the prediction feature.')
+      return
+    }
+  
     setError('')
     setResult(null)
 
@@ -89,18 +124,15 @@ export default function InputPage() {
 
     try {
       setLoading(true);
-      // 1. Send a request to the back end
       const response = await predictGrowth(payload); 
       setResult({ response, payload });
   
-      // 2. Save the successful result of this time to the localStorage of your browser
       const newRecord = {
         time: new Date().toISOString(),
         input: payload,
         output: response.predicted_yield_kg_per_m2 
       };
   
-      // Read the old record, add the new record and save it back
       const existingHistory = JSON.parse(localStorage.getItem('history') || '[]');
       localStorage.setItem('history', JSON.stringify([newRecord, ...existingHistory]));
   
@@ -111,6 +143,12 @@ export default function InputPage() {
     }
   }
 
+  const historyData = JSON.parse(localStorage.getItem('history') || '[]');
+  const chartData = selected.map(index => ({
+    time: new Date(historyData[index].time).toLocaleTimeString(),
+    yield: historyData[index].output
+  })).reverse();
+
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-200">
@@ -119,34 +157,46 @@ export default function InputPage() {
             <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-brand-600">
               <Leaf className="w-5 h-5 text-white" />
             </div>
-
             <div>
               <h1 className="text-lg font-semibold text-slate-900 leading-tight">
                 Tomato Yield Predictor
               </h1>
               <p className="text-xs text-slate-500">
-                Spring Boot + Python model integration
+                Predict your tomato yield and get advice
               </p>
             </div>
           </div>
 
-          <button
-            onClick={() => setShowHistory(true)}
-            className="text-sm px-4 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800"
-          >
-            History
-          </button>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setShowHistory(true)}
+              className="text-sm px-4 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800 font-medium transition-all shadow-sm"
+            >
+              History
+            </button>
 
+            {user ? (
+              <button onClick={logout}
+                className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 text-sm font-medium transition-colors">
+                <LogOut size={16}/> Logout ({user})
+              </button>
+            ) : (
+              <button 
+                onClick={() => navigate('/login')} // Navigation works now
+                className="px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 text-sm font-medium transition-all"
+              >
+                Log in
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-10 space-y-8">
         <div className="rounded-2xl bg-gradient-to-r from-brand-600 to-brand-700 p-6 text-white shadow-md">
-          <p className="text-sm font-medium text-brand-100 mb-1">Feature 134 - Yield Forecast</p>
-          <h2 className="text-2xl font-bold mb-2">Predict Tomato Yield From Your Web Form</h2>
+          <h2 className="text-2xl font-bold mb-2">Predict Your Tomato Yield</h2>
           <p className="text-brand-100 text-sm max-w-xl">
-            Fill in the greenhouse and fertilizer data below. The values you enter on this page are
-            sent to Spring Boot, forwarded to your Python model, and the predicted yield is returned to the result page.
+            Fill in the greenhouse and fertilizer data below, and the predicted yield will be returned!
           </p>
         </div>
 
@@ -161,13 +211,21 @@ export default function InputPage() {
               <div className="space-y-4">
                 {group.fields.map(field => (
                   <label key={field.key} className="block">
-                    <span className="block text-sm font-medium text-slate-700 mb-1.5">{field.label}</span>
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <span className="block text-sm font-medium text-slate-700">{field.label}</span>
+                      <div className="group relative">
+                        <HelpCircle size={14} className="text-slate-300 cursor-help group-hover:text-brand-500" />
+                        <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[11px] rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
+                          {FIELD_INFO[field.key]}
+                        </div>
+                      </div>
+                    </div>
                     {field.type === 'select' ? (
                       <select
                         value={form[field.key]}
                         onChange={e => updateField(field.key, e.target.value)}
                         className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-900
-                                   focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+                                    focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                       >
                         {field.options.map(option => (
                           <option key={option} value={option}>{option}</option>
@@ -195,16 +253,6 @@ export default function InputPage() {
               </div>
             </section>
           ))}
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-          <h3 className="text-sm font-semibold text-slate-800 mb-2">How the data flows</h3>
-          <ol className="text-sm text-slate-600 space-y-1 list-decimal list-inside">
-            <li>You enter the base data on this webpage.</li>
-            <li>The browser sends the form to Spring Boot at <code>/api/predict</code>.</li>
-            <li>Spring Boot forwards the request to your Python model service.</li>
-            <li>The model prediction is returned and shown on the results page.</li>
-          </ol>
         </div>
 
         {error && (
@@ -242,6 +290,7 @@ export default function InputPage() {
 
         {result && (
           <section className="space-y-6">
+            {/* result details here... (keeping same as your original) */}
             <div className="rounded-2xl bg-gradient-to-r from-brand-600 to-brand-700 px-6 py-5 text-white shadow-md flex items-center gap-4">
               <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
                 <Activity className="w-5 h-5 text-white" />
@@ -319,7 +368,7 @@ export default function InputPage() {
                 <button
                   onClick={() => setResult(null)}
                   className="flex items-center gap-2.5 px-6 py-3 rounded-xl border-2 border-brand-600
-                             text-brand-600 font-semibold text-sm hover:bg-brand-50 transition active:scale-95"
+                               text-brand-600 font-semibold text-sm hover:bg-brand-50 transition active:scale-95"
                 >
                   <RefreshCw className="w-4 h-4" />
                   Clear Result
@@ -329,69 +378,94 @@ export default function InputPage() {
           </section>
         )}
       </main>
+
       {showHistory && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
-          
-          {/* modal box */}
-          <div className="bg-white w-[90%] max-w-5xl rounded-2xl shadow-xl overflow-hidden">
-            
-            {/* header */}
-            <div className="flex justify-between items-center px-6 py-4 border-b">
-              <h2 className="font-semibold text-lg">Prediction History</h2>
-
-              <button
-                onClick={() => setShowHistory(false)}
-                className="text-slate-500 hover:text-black"
-              >
-                ✕
-              </button>
+          <div className="bg-white w-[90%] max-w-5xl rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-center px-6 py-4 border-b shrink-0">
+              <h2 className="font-semibold text-lg text-slate-800">Prediction History</h2>
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={() => {
+                    setCompareMode(!compareMode);
+                    if (!compareMode) setSelected([]);
+                  }}
+                  className={`text-xs px-3 py-1.5 rounded-lg transition-colors font-semibold ${
+                    compareMode ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {compareMode ? 'Cancel Compare' : 'Compare'}
+                </button>
+                <button
+                  onClick={() => setShowHistory(false)}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <X size={20}/>
+                </button>
+              </div>
             </div>
 
-            {/* content */}
-            <div className="p-6 max-h-[70vh] overflow-auto">
-              {(() => {
-                const data = JSON.parse(localStorage.getItem('history') || '[]')
+            <div className="p-6 overflow-auto">
+              {compareMode && selected.length > 0 && (
+                <div className="mb-8 p-4 bg-slate-50 border border-slate-200 rounded-xl h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="time" fontSize={10} />
+                      <YAxis fontSize={10} />
+                      <Tooltip />
+                      <Legend />
+                      <Line type="monotone" dataKey="yield" stroke="#0ea5e9" strokeWidth={2} name="Yield (kg/m2)" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
 
-                if (data.length === 0) {
-                  return (
-                    <p className="text-center text-slate-400 py-10">
-                      No history yet
-                    </p>
-                  )
-                }
-
-                return (
-                  <table className="w-full text-sm border">
-                    <thead className="bg-slate-100">
-                      <tr>
-                        <th className="p-3 text-left">Time</th>
-                        <th className="p-3 text-left">Variety</th>
-                        <th className="p-3 text-left">Temp</th>
-                        <th className="p-3 text-left">Humidity</th>
-                        <th className="p-3 text-left">CO2</th>
-                        <th className="p-3 text-left">Yield</th>
+              {historyData.length === 0 ? (
+                <p className="text-center text-slate-400 py-10">No history yet</p>
+              ) : (
+                <table className="w-full text-sm border-collapse">
+                  <thead className="bg-slate-50 border-y sticky top-0">
+                    <tr>
+                      {compareMode && <th className="p-3 text-left w-10">Select</th>}
+                      <th className="p-3 text-left">Time</th>
+                      <th className="p-3 text-left">Variety</th>
+                      <th className="p-3 text-left">Temp</th>
+                      <th className="p-3 text-left">Humidity</th>
+                      <th className="p-3 text-left">CO2</th>
+                      <th className="p-3 text-left">Yield</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historyData.map((item, i) => (
+                      <tr key={i} className={`border-b hover:bg-slate-50 transition-colors ${selected.includes(i) ? 'bg-blue-50' : ''}`}>
+                        {compareMode && (
+                          <td className="p-3 text-center">
+                            <input 
+                              type="checkbox"
+                              checked={selected.includes(i)}
+                              onChange={() => {
+                                setSelected(prev => 
+                                  prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i]
+                                )
+                              }}
+                              className="w-4 h-4 rounded text-brand-600"
+                            />
+                          </td>
+                        )}
+                        <td className="p-3">{new Date(item.time).toLocaleString()}</td>
+                        <td className="p-3">{item.input.variety}</td>
+                        <td className="p-3">{item.input.avgTemperatureC}</td>
+                        <td className="p-3">{item.input.humidityPercent}</td>
+                        <td className="p-3">{item.input.co2Ppm}</td>
+                        <td className="p-3 font-bold text-brand-600">
+                          {item.output?.toFixed(2)}
+                        </td>
                       </tr>
-                    </thead>
-
-                    <tbody>
-                      {data.map((item, i) => (
-                        <tr key={i} className="border-t">
-                          <td className="p-3">
-                            {new Date(item.time).toLocaleString()}
-                          </td>
-                          <td className="p-3">{item.input.variety}</td>
-                          <td className="p-3">{item.input.avgTemperatureC}</td>
-                          <td className="p-3">{item.input.humidityPercent}</td>
-                          <td className="p-3">{item.input.co2Ppm}</td>
-                          <td className="p-3 font-bold text-brand-600">
-                            {item.output?.toFixed(2)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )
-              })()}
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </div>

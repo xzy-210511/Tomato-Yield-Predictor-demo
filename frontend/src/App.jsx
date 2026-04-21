@@ -1,5 +1,6 @@
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import InputPage from './pages/InputPage'
+import AuthPage from './pages/AuthPage'
 
 export default function App() {
   return (
@@ -7,6 +8,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<InputPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/login" element={<AuthPage />} />
       </Routes>
     </HashRouter>
   )
