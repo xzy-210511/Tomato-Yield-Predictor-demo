@@ -1,54 +1,11 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom' 
-import { Leaf, FlaskConical, AlertCircle, X, Activity, CheckCircle2, RefreshCw, HelpCircle, LogOut } from 'lucide-react'
+import { 
+  Leaf, FlaskConical, AlertCircle, X, Activity, 
+  CheckCircle2, RefreshCw, HelpCircle, LogOut, 
+  Wind, Sun, Gauge, Lightbulb, TrendingUp, Bug, Droplets, User, ArrowUpRight
+} from 'lucide-react'
 import { predictGrowth } from '../api/predict'
-import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend } from 'recharts'
-
-const INITIAL_FORM = {
-  avgTemperatureC: '25',
-  minTemperatureC: '24',
-  maxTemperatureC: '27',
-  humidityPercent: '70',
-  co2Ppm: '800',
-  lightIntensityLux: '30000',
-  photoperiodHours: '12',
-  irrigationMm: '7',
-  fertilizerNKgHa: '140',
-  fertilizerPKgHa: '60',
-  fertilizerKKgHa: '140',
-  pestSeverity: '1',
-  pH: '6.5',
-  variety: 'Roma',
-}
-
-const FIELD_GROUPS = [
-  {
-    title: 'Climate Inputs',
-    description: 'These values describe the greenhouse environment.',
-    fields: [
-      { key: 'avgTemperatureC', label: 'Average Temperature', type: 'number', step: '0.1', unit: 'C' },
-      { key: 'minTemperatureC', label: 'Minimum Temperature', type: 'number', step: '0.1', unit: 'C' },
-      { key: 'maxTemperatureC', label: 'Maximum Temperature', type: 'number', step: '0.1', unit: 'C' },
-      { key: 'humidityPercent', label: 'Humidity', type: 'number', step: '0.1', unit: '%' },
-      { key: 'co2Ppm', label: 'CO2 Concentration', type: 'number', step: '1', unit: 'ppm' },
-      { key: 'lightIntensityLux', label: 'Light Intensity', type: 'number', step: '1', unit: 'lux' },
-      { key: 'photoperiodHours', label: 'Photoperiod', type: 'number', step: '0.1', unit: 'hours' },
-    ],
-  },
-  {
-    title: 'Crop Management Inputs',
-    description: 'These values describe irrigation, nutrients, pest pressure, and variety.',
-    fields: [
-      { key: 'irrigationMm', label: 'Irrigation', type: 'number', step: '0.1', unit: 'mm' },
-      { key: 'fertilizerNKgHa', label: 'Fertilizer N', type: 'number', step: '0.1', unit: 'kg/ha' },
-      { key: 'fertilizerPKgHa', label: 'Fertilizer P', type: 'number', step: '0.1', unit: 'kg/ha' },
-      { key: 'fertilizerKKgHa', label: 'Fertilizer K', type: 'number', step: '0.1', unit: 'kg/ha' },
-      { key: 'pestSeverity', label: 'Pest Severity', type: 'number', step: '1', unit: '0-5' },
-      { key: 'pH', label: 'pH', type: 'number', step: '0.1', unit: '' },
-      { key: 'variety', label: 'Tomato Variety', type: 'select', options: ['Beefsteak', 'Cherry', 'Heirloom', 'Roma'] },
-    ],
-  },
-]
 
 const FIELD_INFO = {
   avgTemperatureC: "Average greenhouse temperature (°C). Tip: Measure at plant height.",
@@ -67,408 +24,279 @@ const FIELD_INFO = {
   variety: "Tomato variety. Different types have varying yield potentials."
 }
 
+const INITIAL_FORM = {
+  avgTemperatureC: '25', minTemperatureC: '24', maxTemperatureC: '27',
+  humidityPercent: '70', co2Ppm: '800', lightIntensityLux: '30000',
+  photoperiodHours: '12', irrigationMm: '7', fertilizerNKgHa: '140',
+  fertilizerPKgHa: '60', fertilizerKKgHa: '140', pestSeverity: '1',
+  pH: '6.5', variety: 'Roma',
+}
+
+const PARAMETER_GROUPS = [
+  {
+    title: 'Climate Matrix',
+    icon: <Sun size={18} className="text-orange-500" />,
+    fields: [
+      { key: 'avgTemperatureC', label: 'Avg Temp', unit: '°C', min: 10, max: 45, step: 0.1 },
+      { key: 'minTemperatureC', label: 'Min Temp', unit: '°C', min: 5, max: 35, step: 0.1 },
+      { key: 'maxTemperatureC', label: 'Max Temp', unit: '°C', min: 15, max: 50, step: 0.1 },
+      { key: 'humidityPercent', label: 'Humidity', unit: '%', min: 20, max: 100, step: 1 },
+      { key: 'co2Ppm', label: 'CO2 Level', unit: 'ppm', min: 300, max: 2000, step: 10 },
+      { key: 'lightIntensityLux', label: 'Light', unit: 'lux', min: 0, max: 100000, step: 500 },
+      { key: 'photoperiodHours', label: 'Daylight', unit: 'h', min: 0, max: 24, step: 0.5 },
+    ],
+  },
+  {
+    title: 'Resource & Soil',
+    icon: <Droplets size={18} className="text-blue-500" />,
+    fields: [
+      { key: 'irrigationMm', label: 'Irrigation', unit: 'mm', min: 0, max: 50, step: 0.1 },
+      { key: 'pH', label: 'Soil pH', unit: '', min: 4, max: 9, step: 0.1 },
+      { key: 'pestSeverity', label: 'Pest Level', unit: '0-5', min: 0, max: 5, step: 1 },
+    ],
+  },
+  {
+    title: 'Nutrient Profile',
+    icon: <FlaskConical size={18} className="text-emerald-500" />,
+    fields: [
+      { key: 'fertilizerNKgHa', label: 'Nitrogen (N)', unit: 'kg/ha', min: 0, max: 400, step: 1 },
+      { key: 'fertilizerPKgHa', label: 'Phosphorus (P)', unit: 'kg/ha', min: 0, max: 400, step: 1 },
+      { key: 'fertilizerKKgHa', label: 'Potassium (K)', unit: 'kg/ha', min: 0, max: 400, step: 1 },
+    ],
+  },
+]
+
 export default function InputPage() {
   const [form, setForm] = useState(INITIAL_FORM)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
-  const [showHistory, setShowHistory] = useState(false)
-  const [selected, setSelected] = useState([]) 
-  const [compareMode, setCompareMode] = useState(false)
-
-  const navigate = useNavigate() // Initialize navigate function here
+  const navigate = useNavigate()
   const user = localStorage.getItem('user')
 
-  const logout = () => {
-    localStorage.removeItem('user')
-    window.location.reload()
-  }
+  const updateField = (key, value) => setForm(prev => ({ ...prev, [key]: value }))
 
-  const predictedYield = result?.response?.predicted_yield_kg_per_m2
-
-  const updateField = (key, value) => {
-    setForm(current => ({ ...current, [key]: value }))
-  }
+  const bottleneck = useMemo(() => {
+    if (!result) return null;
+    const f = form;
+    if (parseFloat(f.pestSeverity) >= 3) return { type: 'Pest', label: 'Pest Level', desc: 'Critical pest levels detected.', icon: <Bug />, color: 'red' };
+    if (parseFloat(f.co2Ppm) < 600) return { type: 'CO2', label: 'CO2 Level', desc: 'Low CO2 is limiting photosynthesis.', icon: <Wind />, color: 'blue' };
+    if (parseFloat(f.pH) < 5.8 || parseFloat(f.pH) > 7.2) return { type: 'pH', label: 'Soil pH', desc: 'pH imbalance is affecting nutrient uptake.', icon: <Gauge />, color: 'orange' };
+    return { type: 'Optimized', label: 'Balanced', desc: 'Metabolic rates are within optimal range.', icon: <CheckCircle2 />, color: 'emerald' };
+  }, [result, form]);
 
   const handlePredict = async () => {
-    if (!user) {
-      setError('Please login first to use the prediction feature.')
-      return
-    }
-  
-    setError('')
-    setResult(null)
-
-    const emptyField = Object.entries(form).find(([, value]) => String(value).trim() === '')
-    if (emptyField) {
-      setError('Please complete every field before requesting a prediction.')
-      return
-    }
-
-    const payload = {
-      avgTemperatureC: parseFloat(form.avgTemperatureC),
-      minTemperatureC: parseFloat(form.minTemperatureC),
-      maxTemperatureC: parseFloat(form.maxTemperatureC),
-      humidityPercent: parseFloat(form.humidityPercent),
-      co2Ppm: parseFloat(form.co2Ppm),
-      lightIntensityLux: parseFloat(form.lightIntensityLux),
-      photoperiodHours: parseFloat(form.photoperiodHours),
-      irrigationMm: parseFloat(form.irrigationMm),
-      fertilizerNKgHa: parseFloat(form.fertilizerNKgHa),
-      fertilizerPKgHa: parseFloat(form.fertilizerPKgHa),
-      fertilizerKKgHa: parseFloat(form.fertilizerKKgHa),
-      pestSeverity: parseFloat(form.pestSeverity),
-      pH: parseFloat(form.pH),
-      variety: form.variety,
-    }
-
+    setLoading(true); 
+    setError('');
     try {
-      setLoading(true);
-      const response = await predictGrowth(payload); 
-      setResult({ response, payload });
-  
-      const newRecord = {
-        time: new Date().toISOString(),
-        input: payload,
-        output: response.predicted_yield_kg_per_m2 
-      };
-  
-      const existingHistory = JSON.parse(localStorage.getItem('history') || '[]');
-      localStorage.setItem('history', JSON.stringify([newRecord, ...existingHistory]));
-  
-    } catch (e) {
-      setError(e.message || 'Prediction failed.');
-    } finally {
-      setLoading(false);
+      const payload = Object.fromEntries(
+        Object.entries(form).map(([k, v]) => [k, k === 'variety' ? v : parseFloat(v)])
+      )
+      const response = await predictGrowth(payload)
+      if (response && response.predicted_yield_kg_per_m2 !== undefined) {
+        setResult({ response, payload })
+        const history = JSON.parse(localStorage.getItem('history') || '[]')
+        localStorage.setItem('history', JSON.stringify([{ time: new Date().toISOString(), input: payload, output: response.predicted_yield_kg_per_m2 }, ...history]))
+      } else { 
+        throw new Error("Invalid response format.") 
+      }
+    } catch (e) { 
+      setError(e.message || 'Simulation failed.') 
+    } finally { 
+      setLoading(false) 
     }
   }
 
-  const historyData = JSON.parse(localStorage.getItem('history') || '[]');
-  const chartData = selected.map(index => ({
-    time: new Date(historyData[index].time).toLocaleTimeString(),
-    yield: historyData[index].output
-  })).reverse();
-
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-200">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+    <div className="min-h-screen bg-[#f8fafc] text-slate-900 font-sans">
+      <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200">
+        <div className="max-w-[1400px] mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-brand-600">
-              <Leaf className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold text-slate-900 leading-tight">
-                Tomato Yield Predictor
-              </h1>
-              <p className="text-xs text-slate-500">
-                Predict your tomato yield and get advice
-              </p>
-            </div>
+            <div className="w-10 h-10 rounded-2xl bg-brand-600 flex items-center justify-center shadow-lg shadow-brand-200"><Leaf className="text-white" size={22} /></div>
+            <h1 className="text-xl font-black tracking-tight uppercase italic">Tomato<span className="text-brand-600">Lab</span></h1>
           </div>
-
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setShowHistory(true)}
-              className="text-sm px-4 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800 font-medium transition-all shadow-sm"
-            >
-              History
-            </button>
-
+          <div className="flex items-center gap-6">
+            <button onClick={() => navigate('/history')} className="text-sm font-bold text-slate-500 hover:text-brand-600 transition-colors">History</button>
             {user ? (
-              <button onClick={logout}
-                className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 text-sm font-medium transition-colors">
-                <LogOut size={16}/> Logout ({user})
-              </button>
+              <div className="flex items-center gap-4 px-4 py-2 bg-slate-50 rounded-xl border border-slate-100">
+                <span className="text-xs font-black text-slate-700 flex items-center gap-2"><User size={14}/> {user}</span>
+                <button onClick={() => { localStorage.removeItem('user'); window.location.reload(); }} className="text-xs font-bold text-red-500 hover:text-red-600">Logout</button>
+              </div>
             ) : (
-              <button 
-                onClick={() => navigate('/login')} // Navigation works now
-                className="px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 text-sm font-medium transition-all"
-              >
-                Log in
-              </button>
+              <button onClick={() => navigate('/login')} className="px-6 py-2 bg-slate-900 text-white rounded-xl text-xs font-black hover:bg-brand-600 transition-all shadow-lg shadow-slate-200">Sign In</button>
             )}
           </div>
         </div>
-      </header>
+      </nav>
 
-      <main className="max-w-5xl mx-auto px-6 py-10 space-y-8">
-        <div className="rounded-2xl bg-gradient-to-r from-brand-600 to-brand-700 p-6 text-white shadow-md">
-          <h2 className="text-2xl font-bold mb-2">Predict Your Tomato Yield</h2>
-          <p className="text-brand-100 text-sm max-w-xl">
-            Fill in the greenhouse and fertilizer data below, and the predicted yield will be returned!
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {FIELD_GROUPS.map(group => (
-            <section key={group.title} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-800">{group.title}</h3>
-                <p className="text-xs text-slate-400 mt-0.5">{group.description}</p>
+      <main className="max-w-[1400px] mx-auto px-6 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          
+          <div className="lg:col-span-5 xl:col-span-4">
+            <div className="bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm sticky top-24">
+              <div className="flex items-center justify-between mb-8">
+                <h2 className="text-lg font-black flex items-center gap-2"><Activity size={20} className="text-brand-600"/> Lab Settings</h2>
+                <button onClick={() => setForm(INITIAL_FORM)} className="text-[10px] font-black text-slate-300 hover:text-brand-600 uppercase tracking-widest transition-colors">Reset</button>
               </div>
 
-              <div className="space-y-4">
-                {group.fields.map(field => (
-                  <label key={field.key} className="block">
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <span className="block text-sm font-medium text-slate-700">{field.label}</span>
-                      <div className="group relative">
-                        <HelpCircle size={14} className="text-slate-300 cursor-help group-hover:text-brand-500" />
-                        <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[11px] rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
-                          {FIELD_INFO[field.key]}
+              <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+                {PARAMETER_GROUPS.map(group => (
+                  <div key={group.title} className="space-y-4">
+                    <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-50 pb-2">
+                      {group.icon} {group.title}
+                    </div>
+                    {group.fields.map(field => (
+                      <div key={field.key} className="group relative">
+                        <div className="flex justify-between items-center mb-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <label className="text-[11px] font-bold text-slate-500 group-hover:text-brand-600 transition-colors">{field.label}</label>
+                            <div className="group/tip relative cursor-help">
+                              <HelpCircle size={12} className="text-slate-300 group-hover/tip:text-brand-500 transition-colors" />
+                              <div className="absolute bottom-full left-0 mb-2 w-48 p-3 bg-slate-800 text-white text-[10px] rounded-xl shadow-xl opacity-0 invisible group-hover/tip:opacity-100 group-hover/tip:visible transition-all z-50 leading-relaxed font-medium">
+                                {FIELD_INFO[field.key]}
+                              </div>
+                            </div>
+                          </div>
+                          <input 
+                            type="number" step={field.step} value={form[field.key]} 
+                            onChange={(e) => updateField(field.key, e.target.value)}
+                            className="w-16 text-right bg-transparent text-xs font-black text-brand-600 outline-none"
+                          />
+                        </div>
+                        <input 
+                          type="range" min={field.min} max={field.max} step={field.step}
+                          value={form[field.key]} onChange={(e) => updateField(field.key, e.target.value)}
+                          className="w-full h-1 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-brand-600"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ))}
+                
+                <div className="pt-4">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Variety Selection</label>
+                  <select 
+                    value={form.variety} onChange={(e) => updateField('variety', e.target.value)}
+                    className="w-full p-4 bg-slate-50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-brand-500 outline-none transition-all"
+                  >
+                    {['Beefsteak', 'Cherry', 'Heirloom', 'Roma'].map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <button 
+                onClick={handlePredict} disabled={loading}
+                className="w-full mt-8 py-4 bg-brand-600 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-brand-100 hover:bg-brand-700 active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+              >
+                {loading ? <RefreshCw className="animate-spin" size={18}/> : <TrendingUp size={18}/>}
+                {loading ? 'Processing...' : 'Run Simulation'}
+              </button>
+            </div>
+          </div>
+
+          <div className="lg:col-span-7 xl:col-span-8">
+            {result ? (
+              <div className="animate-in fade-in slide-in-from-right-8 duration-500 space-y-8">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                  <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-sm relative overflow-hidden group">
+                    <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform duration-700 text-brand-600"><Activity size={200} /></div>
+                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Estimated Yield</p>
+                    <div className="flex items-baseline gap-3">
+                      <span className="text-7xl sm:text-8xl font-black text-slate-900 tracking-tighter">
+                        {result.response.predicted_yield_kg_per_m2.toFixed(2)}
+                      </span>
+                      <span className="text-xl font-bold text-slate-400 uppercase tracking-tighter">kg/m²</span>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-900 rounded-[3rem] p-10 text-white shadow-2xl flex flex-col justify-between relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-8 opacity-10">
+                      <TrendingUp size={120} />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-black mb-1 italic tracking-tight">Optimization Focus</h3>
+                      <p className="text-brand-400 text-[10px] font-black uppercase tracking-widest mb-6 underline decoration-brand-400/30 underline-offset-4">Current Bottleneck</p>
+                      
+                      <div className="flex items-center gap-4 relative z-10">
+                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-lg ${
+                          bottleneck.color === 'red' ? 'bg-red-500' : 
+                          bottleneck.color === 'blue' ? 'bg-blue-500' : 
+                          bottleneck.color === 'orange' ? 'bg-orange-500' : 'bg-emerald-500'
+                        }`}>
+                          {bottleneck.icon}
+                        </div>
+                        <div>
+                          <p className="text-lg font-black">{bottleneck.label}</p>
+                          <p className="text-xs text-slate-400 font-medium leading-tight">{bottleneck.desc}</p>
                         </div>
                       </div>
                     </div>
-                    {field.type === 'select' ? (
-                      <select
-                        value={form[field.key]}
-                        onChange={e => updateField(field.key, e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-900
-                                    focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
-                      >
-                        {field.options.map(option => (
-                          <option key={option} value={option}>{option}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <div className="relative">
-                        <input
-                          type={field.type}
-                          step={field.step}
-                          value={form[field.key]}
-                          onChange={e => updateField(field.key, e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-900
-                                     focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
-                        />
-                        {field.unit && (
-                          <span className="absolute inset-y-0 right-3 flex items-center text-xs text-slate-400">
-                            {field.unit}
-                          </span>
-                        )}
+
+                    <div className="mt-8 pt-6 border-t border-white/10 flex justify-between items-end">
+                      <div>
+                        <p className="text-[10px] font-black text-slate-500 uppercase">Growth Status</p>
+                        <p className="text-sm font-bold text-brand-400">Metabolic Peak</p>
                       </div>
-                    )}
-                  </label>
-                ))}
+                      <div className="text-right">
+                        <p className="text-[10px] font-black text-slate-500 uppercase">Est. Harvest</p>
+                        <p className="text-sm font-bold">~14-21 Days</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* AI Advice Grid */}
+                <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-sm">
+                  <h3 className="text-xl font-black mb-10 flex items-center gap-3">
+                    <Lightbulb size={24} className="text-amber-500" /> AI Optimization Advisor
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {[
+                      { ...bottleneck, text: bottleneck.desc },
+                      { icon: <Droplets />, title: "Irrigation Sync", text: "Ensure water cycles match lighting photoperiod.", color: "blue" },
+                    ].map((tip, i) => (
+                      <div key={i} className={`p-6 rounded-[2.5rem] border transition-all flex gap-5 ${
+                        tip.color === 'blue' ? 'bg-blue-50/40 border-blue-100' : 
+                        tip.color === 'orange' ? 'bg-orange-50/40 border-orange-100' : 
+                        tip.color === 'red' ? 'bg-red-50/40 border-red-100' : 'bg-emerald-50/40 border-emerald-100'
+                      }`}>
+                        <div className={`shrink-0 w-12 h-12 rounded-2xl flex items-center justify-center text-white ${
+                          tip.color === 'blue' ? 'bg-blue-500' : 
+                          tip.color === 'orange' ? 'bg-orange-500' : 
+                          tip.color === 'red' ? 'bg-red-500' : 'bg-emerald-500'
+                        }`}>{tip.icon}</div>
+                        <div>
+                          <h4 className="font-black text-slate-900 text-sm mb-1">{tip.title}</h4>
+                          <p className="text-xs text-slate-500 leading-relaxed font-semibold">{tip.text}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
-            </section>
-          ))}
-        </div>
-
-        {error && (
-          <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">
-            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-red-500" />
-            <span className="flex-1">{error}</span>
-            <button onClick={() => setError('')} className="text-red-400 hover:text-red-600">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-
-        <div className="flex justify-end">
-          <button
-            onClick={handlePredict}
-            disabled={loading}
-            className="flex items-center gap-2.5 px-7 py-3 rounded-xl bg-brand-600 hover:bg-brand-700
-                       text-white font-semibold text-sm shadow-md shadow-brand-600/25
-                       disabled:opacity-60 disabled:cursor-not-allowed
-                       transition-all active:scale-95"
-          >
-            {loading ? (
-              <>
-                <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                Analysing...
-              </>
             ) : (
-              <>
-                <FlaskConical className="w-4 h-4" />
-                Predict Tomato Yield
-              </>
+              <div className="h-full min-h-[500px] flex flex-col items-center justify-center text-center bg-white rounded-[3rem] border-2 border-dashed border-slate-100 p-12">
+                <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mb-8 animate-pulse text-slate-200"><FlaskConical size={40} /></div>
+                <h3 className="text-2xl font-black text-slate-300 tracking-tight italic">Ready for Lab Data</h3>
+                <p className="text-slate-400 text-sm max-w-sm mt-4 font-medium italic">Adjust the environmental matrix to see predicted growth potential.</p>
+              </div>
             )}
-          </button>
+          </div>
         </div>
-
-        {result && (
-          <section className="space-y-6">
-            <div className="rounded-2xl bg-gradient-to-r from-brand-600 to-brand-700 px-6 py-5 text-white shadow-md flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-                <Activity className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-brand-100">Analysis complete</p>
-                <p className="font-semibold">The result below is generated from the values you submitted on this page.</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex items-start gap-4">
-                <div className="flex items-center justify-center w-12 h-12 rounded-xl shrink-0 bg-brand-600">
-                  <Activity className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-slate-500 mb-0.5">Predicted Yield</p>
-                  <p className="text-3xl font-bold text-slate-900 leading-none">
-                    {predictedYield.toFixed(2)}
-                    <span className="text-base font-semibold text-slate-400 ml-1">kg/m2</span>
-                  </p>
-                  <p className="text-xs text-slate-400 mt-1">returned by the Python regression model</p>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex items-start gap-4">
-                <div className="flex items-center justify-center w-12 h-12 rounded-xl shrink-0 bg-blue-500">
-                  <CheckCircle2 className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-slate-500 mb-0.5">Yield Class</p>
-                  <p className="text-3xl font-bold text-slate-900 leading-none">
-                    {predictedYield >= 20
-                      ? 'High yield potential'
-                      : predictedYield >= 12
-                        ? 'Stable yield potential'
-                        : 'Low yield potential'}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-1">simple interpretation of the returned number</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-              <div className="flex items-center gap-2 mb-5">
-                <CheckCircle2 className="w-5 h-5 text-brand-600" />
-                <h3 className="text-sm font-semibold text-slate-800">Prediction Outcome</h3>
-              </div>
-
-              <div className="flex flex-col items-center py-6 mb-6 bg-brand-50 rounded-xl border border-brand-100">
-                <p className="text-xs font-medium text-brand-600 uppercase tracking-widest mb-2">
-                  Estimated Tomato Yield
-                </p>
-                <p className="text-7xl font-bold text-brand-700 leading-none">
-                  {predictedYield.toFixed(2)}
-                </p>
-                <p className="text-base text-brand-500 font-medium mt-2">kg per square meter</p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm text-slate-600">
-                <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">
-                  <p className="font-semibold text-slate-800 mb-1">Where the result came from</p>
-                  <p>Spring Boot received your webpage data, called the Python FastAPI service, and returned the model output here.</p>
-                </div>
-                <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">
-                  <p className="font-semibold text-slate-800 mb-1">Input Summary</p>
-                  <p>
-                    Variety: {result.payload.variety}, Avg Temp: {result.payload.avgTemperatureC} C, Humidity: {result.payload.humidityPercent} %,
-                    CO2: {result.payload.co2Ppm} ppm
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-6">
-                <button
-                  onClick={() => setResult(null)}
-                  className="flex items-center gap-2.5 px-6 py-3 rounded-xl border-2 border-brand-600
-                               text-brand-600 font-semibold text-sm hover:bg-brand-50 transition active:scale-95"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                  Clear Result
-                </button>
-              </div>
-            </div>
-          </section>
-        )}
       </main>
 
-      {showHistory && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
-          <div className="bg-white w-[90%] max-w-5xl rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="flex justify-between items-center px-6 py-4 border-b shrink-0">
-              <h2 className="font-semibold text-lg text-slate-800">Prediction History</h2>
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={() => {
-                    setCompareMode(!compareMode);
-                    if (!compareMode) setSelected([]);
-                  }}
-                  className={`text-xs px-3 py-1.5 rounded-lg transition-colors font-semibold ${
-                    compareMode ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  {compareMode ? 'Cancel Compare' : 'Compare'}
-                </button>
-                <button
-                  onClick={() => setShowHistory(false)}
-                  className="text-slate-400 hover:text-slate-600"
-                >
-                  <X size={20}/>
-                </button>
-              </div>
-            </div>
-
-            <div className="p-6 overflow-auto">
-              {compareMode && selected.length > 0 && (
-                <div className="mb-8 p-4 bg-slate-50 border border-slate-200 rounded-xl h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chartData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="time" fontSize={10} />
-                      <YAxis fontSize={10} />
-                      <Tooltip />
-                      <Legend />
-                      <Line type="monotone" dataKey="yield" stroke="#0ea5e9" strokeWidth={2} name="Yield (kg/m2)" />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-
-              {historyData.length === 0 ? (
-                <p className="text-center text-slate-400 py-10">No history yet</p>
-              ) : (
-                <table className="w-full text-sm border-collapse">
-                  <thead className="bg-slate-50 border-y sticky top-0">
-                    <tr>
-                      {compareMode && <th className="p-3 text-left w-10">Select</th>}
-                      <th className="p-3 text-left">Time</th>
-                      <th className="p-3 text-left">Variety</th>
-                      <th className="p-3 text-left">Temp</th>
-                      <th className="p-3 text-left">Humidity</th>
-                      <th className="p-3 text-left">CO2</th>
-                      <th className="p-3 text-left">Yield</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {historyData.map((item, i) => (
-                      <tr key={i} className={`border-b hover:bg-slate-50 transition-colors ${selected.includes(i) ? 'bg-blue-50' : ''}`}>
-                        {compareMode && (
-                          <td className="p-3 text-center">
-                            <input 
-                              type="checkbox"
-                              checked={selected.includes(i)}
-                              onChange={() => {
-                                setSelected(prev => 
-                                  prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i]
-                                )
-                              }}
-                              className="w-4 h-4 rounded text-brand-600"
-                            />
-                          </td>
-                        )}
-                        <td className="p-3">{new Date(item.time).toLocaleString()}</td>
-                        <td className="p-3">{item.input.variety}</td>
-                        <td className="p-3">{item.input.avgTemperatureC}</td>
-                        <td className="p-3">{item.input.humidityPercent}</td>
-                        <td className="p-3">{item.input.co2Ppm}</td>
-                        <td className="p-3 font-bold text-brand-600">
-                          {item.output?.toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
+      {error && (
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-red-600 text-white px-8 py-4 rounded-2xl shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-10 z-[100]">
+          <AlertCircle size={20} />
+          <span className="text-sm font-bold">{error}</span>
+          <button onClick={() => setError('')} className="p-1 hover:bg-white/20 rounded-lg"><X size={16}/></button>
         </div>
       )}
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+      `}} />
     </div>
   )
 }
