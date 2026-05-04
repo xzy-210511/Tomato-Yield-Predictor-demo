@@ -53,4 +53,33 @@ public class PredictionService {
         return response;
     }
 
+    public TimeSeriesPredictionResponse predictTimeSeries(
+            final TimeSeriesPredictionRequest request) {
+        final Map<String, Object> environmentPayload = new LinkedHashMap<>();
+        environmentPayload.put("t_air_mean", request.getEnvironment().getTAirMean());
+        environmentPayload.put("rh_mean", request.getEnvironment().getRhMean());
+        environmentPayload.put("co2_mean", request.getEnvironment().getCo2Mean());
+        environmentPayload.put("par_lamp_daily", request.getEnvironment().getParLampDaily());
+        environmentPayload.put(
+                "light_on_hours_daily",
+                request.getEnvironment().getLightOnHoursDaily()
+        );
+
+        final Map<String, Object> pythonPayload = new LinkedHashMap<>();
+        pythonPayload.put("start_day", request.getStartDay());
+        if (request.getMaturityDay() != null) {
+            pythonPayload.put("maturity_day", request.getMaturityDay());
+        }
+        pythonPayload.put("ec", request.getEc());
+        pythonPayload.put("light", request.getLight());
+        pythonPayload.put("environment", environmentPayload);
+
+        return restClient.post()
+                .uri("/predict/timeseries")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(pythonPayload)
+                .retrieve()
+                .body(TimeSeriesPredictionResponse.class);
+    }
+
 }

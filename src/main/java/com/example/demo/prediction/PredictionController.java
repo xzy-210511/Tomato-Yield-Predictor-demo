@@ -22,4 +22,10 @@ public class PredictionController {
         return predictionService.predict(request);
     }
 
+    @PostMapping("/timeseries")
+    public TimeSeriesPredictionResponse predictTimeSeries(
+            @RequestBody @Valid final TimeSeriesPredictionRequest request) {
+        return predictionService.predictTimeSeries(request);
+    }
+
 }
