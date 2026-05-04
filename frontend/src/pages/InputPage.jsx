@@ -66,6 +66,140 @@ const PARAMETER_GROUPS = [
   },
 ]
 
+function generateSuggestions(payload, yieldKg) {
+  const suggestions = []
+
+  if (payload.avgTemperatureC < 18) {
+    suggestions.push({
+      title: 'Increase Growing Temperature',
+      text: `Average temperature is ${payload.avgTemperatureC} deg C. Tomatoes perform best around 21-27 deg C, so raise greenhouse temperature gradually to improve photosynthesis and fruit set.`,
+      icon: <Sun />,
+      color: 'orange',
+      priority: 2,
+    })
+  } else if (payload.avgTemperatureC > 30) {
+    suggestions.push({
+      title: 'Reduce Heat Stress',
+      text: `At ${payload.avgTemperatureC} deg C, tomatoes may lose fruit set from heat stress. Use shading, ventilation, or evaporative cooling to keep daytime temperature below 29 deg C.`,
+      icon: <Sun />,
+      color: 'orange',
+      priority: 1,
+    })
+  } else {
+    suggestions.push({
+      title: 'Temperature Range Is Strong',
+      text: `Average temperature of ${payload.avgTemperatureC} deg C is within a healthy tomato growth range. Keep day and night swings consistent to avoid plant stress.`,
+      icon: <CheckCircle2 />,
+      color: 'emerald',
+      priority: 5,
+    })
+  }
+
+  if (payload.co2Ppm < 600) {
+    suggestions.push({
+      title: 'Boost CO2 Concentration',
+      text: `CO2 is ${payload.co2Ppm} ppm. Raising it toward 800-1000 ppm during light hours can improve photosynthesis and yield potential.`,
+      icon: <Wind />,
+      color: 'blue',
+      priority: 1,
+    })
+  } else if (payload.co2Ppm >= 800) {
+    suggestions.push({
+      title: 'CO2 Enrichment Is Effective',
+      text: `CO2 at ${payload.co2Ppm} ppm supports active photosynthesis. Keep delivery synchronized with daylight so enrichment is not wasted overnight.`,
+      icon: <CheckCircle2 />,
+      color: 'emerald',
+      priority: 5,
+    })
+  } else {
+    suggestions.push({
+      title: 'Increase CO2 Slightly',
+      text: `CO2 at ${payload.co2Ppm} ppm is workable but not fully optimized. A moderate increase toward 800 ppm may improve growth under strong lighting.`,
+      icon: <Wind />,
+      color: 'blue',
+      priority: 3,
+    })
+  }
+
+  if (payload.pH < 6.0) {
+    suggestions.push({
+      title: 'Raise Nutrient Solution pH',
+      text: `pH ${payload.pH} is below the ideal 6.0-6.8 range. Low pH can limit calcium and magnesium uptake, so correct it gradually with a pH-up solution.`,
+      icon: <Gauge />,
+      color: 'orange',
+      priority: 1,
+    })
+  } else if (payload.pH > 6.8) {
+    suggestions.push({
+      title: 'Lower Nutrient Solution pH',
+      text: `pH ${payload.pH} may reduce iron and manganese availability. Bring it back toward 6.0-6.5 with a dilute acid adjustment.`,
+      icon: <Gauge />,
+      color: 'orange',
+      priority: 1,
+    })
+  } else {
+    suggestions.push({
+      title: 'pH Is In Range',
+      text: `pH ${payload.pH} is well placed for nutrient absorption. Monitor daily and correct drift before it moves outside 6.0-6.8.`,
+      icon: <CheckCircle2 />,
+      color: 'emerald',
+      priority: 5,
+    })
+  }
+
+  if (payload.pestSeverity > 2) {
+    suggestions.push({
+      title: 'Control Pest Pressure',
+      text: `Pest severity is ${payload.pestSeverity}/5. Use integrated pest management: inspect every 48 hours, remove affected leaves, and apply targeted treatment early.`,
+      icon: <Bug />,
+      color: 'red',
+      priority: 0,
+    })
+  }
+
+  if (payload.photoperiodHours < 10) {
+    suggestions.push({
+      title: 'Extend Daily Light Period',
+      text: `Photoperiod is ${payload.photoperiodHours} hours. Tomatoes usually benefit from 12-16 hours of useful light, so consider supplemental LED lighting.`,
+      icon: <Lightbulb />,
+      color: 'blue',
+      priority: 2,
+    })
+  }
+
+  if (payload.irrigationMm < 3) {
+    suggestions.push({
+      title: 'Increase Irrigation Consistency',
+      text: `Irrigation is ${payload.irrigationMm} mm. Review moisture levels around the root zone and avoid long dry periods during flowering and fruit fill.`,
+      icon: <Droplets />,
+      color: 'blue',
+      priority: 2,
+    })
+  }
+
+  if (yieldKg < 12) {
+    suggestions.push({
+      title: 'Review Fertiliser Programme',
+      text: `Predicted yield is ${yieldKg.toFixed(2)} kg/m2. Check the current N:P:K balance of ${payload.fertilizerNKgHa}:${payload.fertilizerPKgHa}:${payload.fertilizerKKgHa}, especially potassium during fruiting.`,
+      icon: <FlaskConical />,
+      color: 'orange',
+      priority: 1,
+    })
+  } else if (yieldKg >= 20) {
+    suggestions.push({
+      title: 'Save This Baseline',
+      text: `Predicted yield of ${yieldKg.toFixed(2)} kg/m2 is strong. Keep these settings as a benchmark for future runs and compare changes against it.`,
+      icon: <TrendingUp />,
+      color: 'emerald',
+      priority: 4,
+    })
+  }
+
+  return suggestions
+    .sort((a, b) => a.priority - b.priority)
+    .slice(0, 4)
+}
+
 export default function InputPage() {
   const [form, setForm] = useState(INITIAL_FORM)
   const [loading, setLoading] = useState(false)
@@ -73,6 +207,7 @@ export default function InputPage() {
   const [result, setResult] = useState(null)
   const navigate = useNavigate()
   const user = localStorage.getItem('user')
+  const predictedYield = result?.response?.predicted_yield_kg_per_m2
 
   const updateField = (key, value) => setForm(prev => ({ ...prev, [key]: value }))
 
@@ -204,7 +339,7 @@ export default function InputPage() {
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Estimated Yield</p>
                     <div className="flex items-baseline gap-3">
                       <span className="text-7xl sm:text-8xl font-black text-slate-900 tracking-tighter">
-                        {result.response.predicted_yield_kg_per_m2.toFixed(2)}
+                        {predictedYield.toFixed(2)}
                       </span>
                       <span className="text-xl font-bold text-slate-400 uppercase tracking-tighter">kg/m²</span>
                     </div>
@@ -252,10 +387,7 @@ export default function InputPage() {
                     <Lightbulb size={24} className="text-amber-500" /> AI Optimization Advisor
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {[
-                      { ...bottleneck, text: bottleneck.desc },
-                      { icon: <Droplets />, title: "Irrigation Sync", text: "Ensure water cycles match lighting photoperiod.", color: "blue" },
-                    ].map((tip, i) => (
+                    {generateSuggestions(result.payload, predictedYield).map((tip, i) => (
                       <div key={i} className={`p-6 rounded-[2.5rem] border transition-all flex gap-5 ${
                         tip.color === 'blue' ? 'bg-blue-50/40 border-blue-100' : 
                         tip.color === 'orange' ? 'bg-orange-50/40 border-orange-100' : 
