@@ -79,6 +79,8 @@ __pycache__/
 
 # Project-specific generated/static build copies
 src/main/resources/static/assets/
+timeseries prediction/cleaned_data/
+timeseries prediction/model_outputs/
 
 # Optional: if you only want to keep frontend source,
 # ignore copied static entry too
