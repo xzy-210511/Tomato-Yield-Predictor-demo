@@ -52,8 +52,7 @@ model = GradientBoostingRegressor(
     max_depth=4,
     subsample=0.8,
     random_state=42,
-    
-    n_iter_no_change=5, 
+    n_iter_no_change=5,
     validation_fraction=0.1,
     tol=1e-4,
     loss='huber',
@@ -71,7 +70,7 @@ mse = mean_squared_error(y_test, y_pred)
 rmse = np.sqrt(mse)
 
 print("\n=== Gradient Boosting ===")
-print(f"R²: {r2:.4f}")
+print(f"R2: {r2:.4f}")
 print(f"MSE: {mse:.4f}")
 print(f"RMSE: {rmse:.4f}")
 
@@ -95,7 +94,7 @@ for lr in learning_rates:
     gb.fit(X_train_scaled, y_train)
     pred = gb.predict(X_test_scaled)
     score = r2_score(y_test, pred)
-    print(f"learning_rate={lr} → R²={score:.4f}")
+    print(f"learning_rate={lr} -> R2={score:.4f}")
 
 
 X_scaled = scaler.fit_transform(X)
@@ -106,11 +105,9 @@ cv_model = GradientBoostingRegressor(
     max_depth=4,
     subsample=0.8,
     random_state=42,
-
-    n_iter_no_change=5, 
+    n_iter_no_change=5,
     validation_fraction=0.1,
     tol=1e-4,
-
     loss='huber',
     alpha=0.9
 )
@@ -119,8 +116,9 @@ cv_scores = cross_val_score(cv_model, X_scaled, y, cv=5, scoring='r2')
 
 print("\n=== Cross Validation ===")
 print("Scores:", cv_scores)
-print(f"Mean R²: {cv_scores.mean():.4f}")
-print(f"Std R²: {cv_scores.std():.4f}")
+print(f"Mean R2: {cv_scores.mean():.4f}")
+print(f"Std R2: {cv_scores.std():.4f}")
+
 
 def predict_yield(data):
     data = data.copy()

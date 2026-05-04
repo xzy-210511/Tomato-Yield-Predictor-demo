@@ -6,6 +6,12 @@ $frontendDir = Join-Path $projectRoot 'frontend'
 $frontendDistDir = Join-Path $frontendDir 'dist'
 $staticDir = Join-Path $projectRoot 'src\main\resources\static'
 $staticAssetsDir = Join-Path $staticDir 'assets'
+$timeSeriesDir = Join-Path $projectRoot 'timeseries prediction'
+$timeSeriesCleanedDir = Join-Path $timeSeriesDir 'cleaned_data'
+$timeSeriesModelDir = Join-Path $timeSeriesDir 'model_outputs'
+$timeSeriesCleaningScript = Join-Path $timeSeriesDir 'datacleaning.py'
+$timeSeriesTrainingScript = Join-Path $timeSeriesDir 'timeseries_train.py'
+$timeSeriesModelFile = Join-Path $timeSeriesModelDir 'recursive_growth_forecaster.joblib'
 $pythonExe = Join-Path $pythonServiceDir '.venv\Scripts\python.exe'
 $pythonVenvDir = Join-Path $pythonServiceDir '.venv'
 $pythonRequirements = Join-Path $pythonServiceDir 'requirements.txt'
@@ -85,6 +91,36 @@ if (Test-Path $frontendDir) {
 
 Write-Host 'Installing Python model dependencies ...'
 & $pythonExe -m pip install -r $pythonRequirements
+
+if (-not (Test-Path $timeSeriesDir)) {
+    Write-Error "Time-series prediction directory not found at $timeSeriesDir"
+}
+
+if (-not (Test-Path $timeSeriesCleaningScript)) {
+    Write-Error "Time-series cleaning script not found at $timeSeriesCleaningScript"
+}
+
+if (-not (Test-Path $timeSeriesTrainingScript)) {
+    Write-Error "Time-series training script not found at $timeSeriesTrainingScript"
+}
+
+$needsTimeSeriesCleaning = -not (Test-Path $timeSeriesCleanedDir)
+$needsTimeSeriesTraining = -not (Test-Path $timeSeriesModelFile)
+
+if ($needsTimeSeriesCleaning) {
+    Write-Host 'Preparing time-series cleaned data ...'
+    & $pythonExe $timeSeriesCleaningScript
+}
+
+if ($needsTimeSeriesTraining) {
+    if (-not (Test-Path $timeSeriesCleanedDir)) {
+        Write-Host 'Preparing time-series cleaned data ...'
+        & $pythonExe $timeSeriesCleaningScript
+    }
+
+    Write-Host 'Training time-series growth model ...'
+    & $pythonExe $timeSeriesTrainingScript
+}
 
 $pythonCommand = "& '$pythonExe' -m uvicorn api:app --host 127.0.0.1 --port 8001"
 $springCommand = "`$env:MAVEN_USER_HOME='$projectRoot\.m2'; & '$mavenWrapper' spring-boot:run"
