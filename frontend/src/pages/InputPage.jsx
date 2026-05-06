@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import TomatoCanvas from '../components/TomatoCanvas.jsx'
 import {
   Activity,
   AlertCircle,
@@ -161,6 +162,7 @@ export default function InputPage() {
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
   const [timeSeriesResult, setTimeSeriesResult] = useState(null)
+  const [viewMode, setViewMode] = useState('default') 
   const navigate = useNavigate()
   const user = localStorage.getItem('user')
 
@@ -375,19 +377,54 @@ export default function InputPage() {
           </div>
 
           <div className="lg:col-span-7 xl:col-span-8">
-            {result ? (
-              <div className="animate-in fade-in slide-in-from-right-8 duration-500 space-y-8">
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                  <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-sm relative overflow-hidden group">
-                    <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform duration-700 text-brand-600"><Activity size={200} /></div>
-                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Estimated Yield</p>
-                    <div className="flex items-baseline gap-3">
-                      <span className="text-7xl sm:text-8xl font-black text-slate-900 tracking-tighter">{predictedYield.toFixed(2)}</span>
-                      <span className="text-xl font-bold text-slate-400 uppercase tracking-tighter">kg/m2</span>
-                    </div>
-                  </div>
 
-                  <div className="bg-slate-900 rounded-[3rem] p-10 text-white shadow-2xl flex flex-col justify-between relative overflow-hidden">
+            {/* Main Panel */}
+            <div className="bg-white rounded-[3rem] border border-slate-200 shadow-sm p-6 min-h-[600px]">
+                          {/* 🔘 Mode Switch */}
+            <div className="flex justify-center mb-6">
+              <div className="flex p-1 bg-slate-100 rounded-2xl">
+                <button
+                  onClick={() => setViewMode('default')}
+                  className={`px-5 py-2 text-xs font-black rounded-xl transition-all ${
+                    viewMode === 'default'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-400'
+                  }`}
+                >
+                  Data
+                </button>
+
+                <button
+                  onClick={() => setViewMode('3d')}
+                  className={`px-5 py-2 text-xs font-black rounded-xl transition-all ${
+                    viewMode === '3d'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-400'
+                  }`}
+                >
+                  3D
+                </button>
+              </div>
+            </div>
+
+              {viewMode === '3d' ? (
+                <div className="h-[520px] rounded-2xl overflow-hidden bg-slate-50 flex items-center justify-center">
+                  <TomatoCanvas metrics={form} />
+                </div>
+
+              ) : result ? (
+                <div className="animate-in fade-in slide-in-from-right-8 duration-500 space-y-8">
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                    <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-sm relative overflow-hidden group">
+                      <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform duration-700 text-brand-600"><Activity size={200} /></div>
+                      <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Estimated Yield</p>
+                      <div className="flex items-baseline gap-3">
+                        <span className="text-7xl sm:text-8xl font-black text-slate-900 tracking-tighter">{predictedYield.toFixed(2)}</span>
+                        <span className="text-xl font-bold text-slate-400 uppercase tracking-tighter">kg/m2</span>
+                      </div>
+                    </div>  
+
+                    <div className="bg-slate-900 rounded-[3rem] p-10 text-white shadow-2xl flex flex-col justify-between relative overflow-hidden">
                     <div className="absolute top-0 right-0 p-8 opacity-10"><TrendingUp size={120} /></div>
                     <div>
                       <h3 className="text-xl font-black mb-1 italic tracking-tight">Optimization Focus</h3>
@@ -445,6 +482,7 @@ export default function InputPage() {
                   </div>
                 </div>
               </div>
+
             ) : (
               <div className="h-full min-h-[500px] flex flex-col items-center justify-center text-center bg-white rounded-[3rem] border-2 border-dashed border-slate-100 p-12">
                 <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mb-8 animate-pulse text-slate-200"><FlaskConical size={40} /></div>
@@ -452,7 +490,8 @@ export default function InputPage() {
                 <p className="text-slate-400 text-sm max-w-sm mt-4 font-medium italic">Adjust the environmental matrix to see predicted growth potential.</p>
               </div>
             )}
-          </div>
+            </div>
+            </div>
         </div>
 
         <section className="grid grid-cols-1 lg:grid-cols-12 gap-8">
