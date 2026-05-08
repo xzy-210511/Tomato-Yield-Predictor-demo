@@ -130,19 +130,33 @@ http://localhost:8080/#/
 
 ## Database
 
-The application now has a minimal prediction-history database.
+The application now has a minimal prediction-history database and a minimal user database for login/register.
 
 By default, local runs use an in-memory H2 database so the app can still start without installing PostgreSQL. For a persistent database, use the PostgreSQL profile.
 
-### Stored table
+Important: H2 is in-memory in the default profile. Registered users and prediction rows are lost when Spring Boot stops. Use PostgreSQL if you want users and records to remain after restart.
 
-Flyway creates this table automatically when Spring Boot starts:
+### Stored tables
+
+Flyway creates these tables automatically when Spring Boot starts:
 
 ```text
 prediction_records
+users
 ```
 
-It stores the submitted greenhouse inputs, the predicted yield, a model version label, and the creation time.
+`prediction_records` stores the submitted greenhouse inputs, the predicted yield, a model version label, and the creation time.
+
+`users` stores registered users for the login/register page:
+
+```text
+id
+username
+password
+created_at
+```
+
+The current implementation stores passwords as plain text to keep the prototype simple. This is only suitable for local demo use. Before real deployment, replace this with password hashing such as BCrypt.
 
 ### Start PostgreSQL with Docker
 
@@ -173,7 +187,11 @@ $env:DB_PASSWORD="tomato_app"
 .\mvnw.cmd spring-boot:run
 ```
 
+This mode persists registered users and prediction records in PostgreSQL.
+
 When `/api/predict` returns successfully, Spring Boot saves one row into `prediction_records`.
+
+When `/api/auth/register` returns successfully, Spring Boot saves one row into `users`.
 
 ### Start the Vite development server
 
@@ -298,7 +316,15 @@ python.api.base-url=http://127.0.0.1:8001
 
 ```text
 POST /api/predict
+POST /api/auth/register
+POST /api/auth/login
 ```
+
+`/api/auth/register` creates a new user if the username is not already taken.
+
+`/api/auth/login` checks the submitted username and password against the `users` table.
+
+The frontend stores the logged-in user's `username` and `userId` in `localStorage` after a successful login or registration. There is currently no token, session, or Spring Security layer.
 
 ### Python model service
 

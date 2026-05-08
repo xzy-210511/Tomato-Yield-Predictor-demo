@@ -307,7 +307,7 @@ export default function InputPage() {
                 <span className="text-xs font-black text-slate-700 flex items-center gap-2">
                   <User size={14} /> {user}
                 </span>
-                <button onClick={() => { localStorage.removeItem('user'); window.location.reload() }} className="text-xs font-bold text-red-500 hover:text-red-600">
+                <button onClick={() => { localStorage.removeItem('user'); localStorage.removeItem('userId'); window.location.reload() }} className="text-xs font-bold text-red-500 hover:text-red-600">
                   Logout
                 </button>
               </div>

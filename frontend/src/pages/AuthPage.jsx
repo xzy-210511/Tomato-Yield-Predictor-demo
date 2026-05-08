@@ -1,44 +1,37 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react' 
-
-function simpleHash(str) {
-  return btoa(str) 
-}
+import { loginUser, registerUser } from '../api/auth'
 
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
 
   const navigate = useNavigate()
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setError('')
-    if (!username || !password) {
+    const trimmedUsername = username.trim()
+    if (!trimmedUsername || !password) {
       setError('Please enter username and password')
       return
     }
 
-    const users = JSON.parse(localStorage.getItem('users') || '{}')
-
-    if (isLogin) {
-      if (!users[username] || users[username] !== simpleHash(password)) {
-        setError('Invalid credentials')
-        return
-      }
-    } else {
-      if (users[username]) {
-        setError('User already exists')
-        return
-      }
-      users[username] = simpleHash(password)
-      localStorage.setItem('users', JSON.stringify(users))
+    setLoading(true)
+    try {
+      const authAction = isLogin ? loginUser : registerUser
+      const user = await authAction({ username: trimmedUsername, password })
+      localStorage.setItem('user', user.username)
+      localStorage.setItem('userId', String(user.userId))
+      navigate('/')
+    } catch (e) {
+      setError(e.message || 'Authentication failed')
+    } finally {
+      setLoading(false)
     }
-
-    localStorage.setItem('user', username)
-    navigate('/')
   }
 
   return (
@@ -93,11 +86,12 @@ export default function AuthPage() {
         )}
 
         <div className="pt-2">
-          <button
-            onClick={handleSubmit}
-            className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold text-lg hover:bg-emerald-600 hover:shadow-lg hover:shadow-emerald-500/30 transition-all active:scale-[0.98]"
-          >
-            {isLogin ? 'Sign In' : 'Create Your Account'}
+            <button
+              onClick={handleSubmit}
+              disabled={loading}
+              className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold text-lg hover:bg-emerald-600 hover:shadow-lg hover:shadow-emerald-500/30 transition-all active:scale-[0.98]"
+            >
+            {loading ? 'Please Wait...' : isLogin ? 'Sign In' : 'Create Your Account'}
           </button>
         </div>
 
