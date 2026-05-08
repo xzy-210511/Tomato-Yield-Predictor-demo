@@ -189,6 +189,13 @@ export default function InputPage() {
       day: point.days_after_transplant,
       plantHeightCm: point.plant_height_cm,
       numLeaves: point.num_leaves,
+      nsNew: point.ns_new_per_plant_l ?? 0,
+      nsAdded: point.ns_added_per_plant_l ?? 0,
+      nsResidual: point.ns_residual_per_plant_l ?? 0,
+      nsAction: point.ns_action,
+      nsRecommendation: point.ns_recommendation,
+      nsPolicy: point.ns_policy,
+      ecLimit: point.ec_limit,
     }))
   }, [timeSeriesResult])
 
@@ -285,6 +292,13 @@ export default function InputPage() {
 
   const predictedYield = result?.response?.predicted_yield_kg_per_m2
   const finalTimeSeriesPoint = timeSeriesChartData.at(-1)
+  const totalNsSupply = timeSeriesChartData.reduce(
+    (sum, point) => sum + point.nsNew + point.nsAdded,
+    0
+  )
+  const firstNsAction = timeSeriesChartData.find(point =>
+    ['replace', 'add'].includes(point.nsAction)
+  )
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-900 font-sans">
@@ -532,28 +546,60 @@ export default function InputPage() {
                     </div>
                   </div>
 
-                  <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-sm">
-                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Final Leaf Count</p>
+	                  <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-sm">
+	                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Final Leaf Count</p>
                     <div className="flex items-baseline gap-3">
                       <span className="text-7xl sm:text-8xl font-black text-slate-900 tracking-tighter">
                         {finalTimeSeriesPoint ? finalTimeSeriesPoint.numLeaves.toFixed(2) : '--'}
                       </span>
-                      <span className="text-xl font-bold text-slate-400 uppercase tracking-tighter">leaves</span>
-                    </div>
-                  </div>
-                </div>
+	                      <span className="text-xl font-bold text-slate-400 uppercase tracking-tighter">leaves</span>
+	                    </div>
+	                  </div>
+
+	                  <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-sm">
+	                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Total NS Supply</p>
+	                    <div className="flex items-baseline gap-3">
+	                      <span className="text-7xl sm:text-8xl font-black text-slate-900 tracking-tighter">
+	                        {timeSeriesChartData.length ? totalNsSupply.toFixed(2) : '--'}
+	                      </span>
+	                      <span className="text-xl font-bold text-slate-400 uppercase tracking-tighter">L/plant</span>
+	                    </div>
+	                  </div>
+
+	                  <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-sm">
+	                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">NS Recommendation</p>
+	                    <div className="space-y-3">
+	                      <div className="flex items-center gap-3">
+	                        <div className="w-12 h-12 rounded-2xl bg-cyan-500 text-white flex items-center justify-center">
+	                          <Droplets size={22} />
+	                        </div>
+	                        <p className="text-2xl font-black text-slate-900">
+	                          {firstNsAction ? `Day ${firstNsAction.day}` : '--'}
+	                        </p>
+	                      </div>
+	                      <p className="text-sm font-bold text-slate-500 leading-relaxed">
+	                        {firstNsAction?.nsRecommendation || 'Run the forecast to generate an NS recommendation.'}
+	                      </p>
+	                      {firstNsAction?.nsPolicy && (
+	                        <p className="text-[10px] font-black text-brand-600 uppercase tracking-widest">
+	                          {firstNsAction.nsPolicy} policy / EC limit {firstNsAction.ecLimit}
+	                        </p>
+	                      )}
+	                    </div>
+	                  </div>
+	                </div>
 
               <div className="bg-white rounded-[3rem] p-8 border border-slate-200 shadow-sm">
                 <div className="mb-6">
                   <h3 className="text-xl font-black flex items-center gap-3">
                     <TrendingUp size={24} className="text-brand-600" /> Growth Trajectory
                   </h3>
-                  <p className="text-sm text-slate-500 mt-1">The time-series prediction is shown as two separate charts for easier reading.</p>
+	                  <p className="text-sm text-slate-500 mt-1">The time-series prediction is shown as growth and nutrient solution curves.</p>
                 </div>
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                   {timeSeriesChartData.length > 0 ? (
                     <>
-                      <div className="rounded-[2rem] border border-slate-100 bg-slate-50/50 p-5">
+	                      <div className="rounded-[2rem] border border-slate-100 bg-slate-50/50 p-5">
                         <div className="mb-4">
                           <p className="text-sm font-black text-slate-900">Plant Height</p>
                           <p className="text-xs text-slate-500">Daily predicted height in centimeters.</p>
@@ -589,8 +635,29 @@ export default function InputPage() {
                             </LineChart>
                           </ResponsiveContainer>
                         </div>
-                      </div>
-                    </>
+	                      </div>
+
+	                      <div className="xl:col-span-2 rounded-[2rem] border border-slate-100 bg-slate-50/50 p-5">
+	                        <div className="mb-4">
+	                          <p className="text-sm font-black text-slate-900">Nutrient Solution</p>
+	                          <p className="text-xs text-slate-500">Predicted NS supply per plant in liters.</p>
+	                        </div>
+	                        <div className="h-[320px]">
+	                          <ResponsiveContainer width="100%" height="100%">
+	                            <LineChart data={timeSeriesChartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+	                              <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+	                              <XAxis dataKey="day" stroke="#64748b" tickLine={false} axisLine={false} />
+	                              <YAxis stroke="#0891b2" tickLine={false} axisLine={false} width={56} />
+	                              <Tooltip />
+	                              <Legend />
+	                              <Line type="monotone" dataKey="nsAdded" name="NS Added (L/plant)" stroke="#0891b2" strokeWidth={3} dot={false} />
+	                              <Line type="monotone" dataKey="nsNew" name="Fresh NS (L/plant)" stroke="#f97316" strokeWidth={3} dot={false} />
+	                              <Line type="monotone" dataKey="nsResidual" name="Residual NS (L/plant)" stroke="#64748b" strokeWidth={2} dot={false} />
+	                            </LineChart>
+	                          </ResponsiveContainer>
+	                        </div>
+	                      </div>
+	                    </>
                   ) : (
                     <div className="xl:col-span-2 h-[420px] flex flex-col items-center justify-center border-2 border-dashed border-slate-100 rounded-[2rem] text-slate-400 bg-slate-50/50">
                       <EmptyChartState />

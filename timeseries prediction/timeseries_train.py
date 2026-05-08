@@ -40,14 +40,47 @@ CATEGORICAL_FEATURES = [
     "light",
 ]
 
+NS_NUMERIC_FEATURES = [
+    "days_after_transplant",
+    "plant_height_cm",
+    "num_leaves",
+    "t_air_mean",
+    "rh_mean",
+    "co2_mean",
+    "par_lamp_daily",
+    "light_on_hours_daily",
+    "par_lamp_sum",
+    "light_on_hours",
+    "t_air_mean_7d",
+    "par_lamp_sum_7d",
+    "ec_limit",
+]
+
+NS_CATEGORICAL_FEATURES = [
+    "ec",
+    "light",
+    "ns_policy",
+]
+
 TARGETS = [
     "next_plant_height_cm",
     "next_num_leaves",
 ]
 
+NS_TARGETS = [
+    "ns_new_per_plant_l",
+    "ns_added_per_plant_l",
+    "ns_residual_per_plant_l",
+]
+
 TARGET_TO_OUTPUT = {
     "next_plant_height_cm": "plant_height_cm",
     "next_num_leaves": "num_leaves",
+}
+
+EC_TO_NS_POLICY = {
+    "EC3": {"ns_policy": "low", "ec_limit": 5.0},
+    "EC6": {"ns_policy": "high", "ec_limit": 10.0},
 }
 
 BACKEND_REQUIRED_INPUT = {
@@ -126,12 +159,25 @@ def aggregate_climate() -> pd.DataFrame:
             "t_air_mean",
             "rh_mean",
             "co2_mean",
+            "par_lamp_daily",
+            "light_on_hours_daily",
             "par_lamp_sum",
             "light_on_hours",
             "t_air_mean_7d",
             "par_lamp_sum_7d",
         ]
     ]
+
+
+def load_ns_training_table() -> pd.DataFrame:
+    path = DATA / "mapped_ns_training_table.csv"
+    if not path.exists():
+        raise FileNotFoundError(f"Missing {path}. Run datacleaning.py first.")
+
+    df = pd.read_csv(path)
+    for column in NS_NUMERIC_FEATURES + NS_TARGETS:
+        df[column] = numeric(df, column)
+    return df.dropna(subset=NS_NUMERIC_FEATURES + NS_CATEGORICAL_FEATURES + NS_TARGETS)
 
 
 def aggregate_observations(crop: pd.DataFrame) -> pd.DataFrame:
@@ -184,6 +230,8 @@ def build_transition_training_table(
         "t_air_mean",
         "rh_mean",
         "co2_mean",
+        "par_lamp_daily",
+        "light_on_hours_daily",
         "par_lamp_sum",
         "light_on_hours",
         "t_air_mean_7d",
@@ -242,6 +290,35 @@ def make_model() -> Pipeline:
     return Pipeline(steps=[("preprocess", preprocessor), ("model", regressor)])
 
 
+def make_ns_model() -> Pipeline:
+    numeric_pipe = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler()),
+        ]
+    )
+    categorical_pipe = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="most_frequent")),
+            ("onehot", OneHotEncoder(handle_unknown="ignore")),
+        ]
+    )
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("num", numeric_pipe, NS_NUMERIC_FEATURES),
+            ("cat", categorical_pipe, NS_CATEGORICAL_FEATURES),
+        ]
+    )
+    regressor = GradientBoostingRegressor(
+        n_estimators=180,
+        learning_rate=0.04,
+        max_depth=2,
+        min_samples_leaf=2,
+        random_state=42,
+    )
+    return Pipeline(steps=[("preprocess", preprocessor), ("model", regressor)])
+
+
 def train_models(training: pd.DataFrame) -> tuple[dict[str, Pipeline], pd.DataFrame]:
     models: dict[str, Pipeline] = {}
     rows: list[dict[str, Any]] = []
@@ -267,6 +344,49 @@ def train_models(training: pd.DataFrame) -> tuple[dict[str, Pipeline], pd.DataFr
                 "rows_used": len(subset),
                 "cv_group_column": "treatment",
                 "cv_group_splits": min(5, groups.nunique()),
+                "mae": mae,
+                "r2": r2,
+            }
+        )
+    return models, pd.DataFrame(rows)
+
+
+def train_ns_models(ns_training: pd.DataFrame) -> tuple[dict[str, Pipeline], pd.DataFrame]:
+    models: dict[str, Pipeline] = {}
+    rows: list[dict[str, Any]] = []
+    feature_columns = NS_NUMERIC_FEATURES + NS_CATEGORICAL_FEATURES
+    groups_all = ns_training["treatment"].astype(str)
+
+    for target in NS_TARGETS:
+        subset = ns_training.dropna(subset=[target])
+        X = subset[feature_columns]
+        y = subset[target].astype(float)
+        groups = groups_all.loc[subset.index]
+        cv_splits = min(5, groups.nunique())
+
+        model = make_ns_model()
+        if cv_splits >= 2 and y.nunique() > 1:
+            pred = cross_val_predict(
+                model,
+                X,
+                y,
+                groups=groups,
+                cv=GroupKFold(n_splits=cv_splits),
+            )
+            mae = mean_absolute_error(y, pred)
+            r2 = r2_score(y, pred)
+        else:
+            mae = 0.0
+            r2 = 1.0
+
+        model.fit(X, y)
+        models[target] = model
+        rows.append(
+            {
+                "target": target,
+                "rows_used": len(subset),
+                "cv_group_column": "treatment",
+                "cv_group_splits": cv_splits,
                 "mae": mae,
                 "r2": r2,
             }
@@ -306,17 +426,27 @@ def save_model(
     metrics: pd.DataFrame,
     training: pd.DataFrame,
     daily_state: pd.DataFrame,
+    ns_models: dict[str, Pipeline],
+    ns_metrics: pd.DataFrame,
+    ns_training: pd.DataFrame,
 ) -> None:
     OUT.mkdir(exist_ok=True)
     training.to_csv(OUT / "timeseries_transition_training_table.csv", index=False, encoding="utf-8-sig")
     metrics.to_csv(OUT / "timeseries_model_metrics.csv", index=False, encoding="utf-8-sig")
+    ns_training.to_csv(OUT / "ns_training_table.csv", index=False, encoding="utf-8-sig")
+    ns_metrics.to_csv(OUT / "ns_model_metrics.csv", index=False, encoding="utf-8-sig")
 
     bundle = {
         "model_type": "recursive_one_step_time_series_forecaster",
         "models": models,
+        "ns_models": ns_models,
         "numeric_features": NUMERIC_FEATURES,
         "categorical_features": CATEGORICAL_FEATURES,
+        "ns_numeric_features": NS_NUMERIC_FEATURES,
+        "ns_categorical_features": NS_CATEGORICAL_FEATURES,
         "targets": TARGETS,
+        "ns_targets": NS_TARGETS,
+        "ec_to_ns_policy": EC_TO_NS_POLICY,
         "backend_required_input": BACKEND_REQUIRED_INPUT,
         "default_maturity_day": DEFAULT_MATURITY_DAY,
         "initial_state_by_treatment": initial_state_lookup(daily_state),
@@ -333,8 +463,13 @@ def save_model(
         "outputs": {
             "plant_height_cm": "Recursive predicted plant height in cm",
             "num_leaves": "Recursive predicted number of leaves",
+            "ns_new_per_plant_l": "Predicted fresh nutrient solution in liters per plant",
+            "ns_added_per_plant_l": "Predicted added nutrient solution in liters per plant",
+            "ns_residual_per_plant_l": "Predicted residual nutrient solution in liters per plant",
         },
         "metrics": metrics.to_dict(orient="records"),
+        "ns_metrics": ns_metrics.to_dict(orient="records"),
+        "ec_to_ns_policy": EC_TO_NS_POLICY,
     }
     (OUT / "timeseries_model_summary.json").write_text(
         json.dumps(summary, indent=2, default=str), encoding="utf-8"
@@ -362,6 +497,8 @@ def build_locked_environment_series(
                 "t_air_mean": t_air_mean,
                 "rh_mean": rh_mean,
                 "co2_mean": co2_mean,
+                "par_lamp_daily": par_lamp_daily,
+                "light_on_hours_daily": light_on_hours_daily,
                 "par_lamp_sum": elapsed * par_lamp_daily,
                 "light_on_hours": elapsed * light_on_hours_daily,
                 "t_air_mean_7d": t_air_mean * recent_days,
@@ -369,6 +506,19 @@ def build_locked_environment_series(
             }
         )
     return rows
+
+
+def ns_environment_row(env_row: dict[str, Any]) -> dict[str, Any]:
+    ns_row = dict(env_row)
+    day = max(int(ns_row["days_after_transplant"]), 0)
+    recent_days = min(7, day)
+    par_lamp_daily = float(ns_row.get("par_lamp_daily", 0.0))
+    light_on_hours_daily = float(ns_row.get("light_on_hours_daily", 0.0))
+    ns_row["par_lamp_sum"] = day * par_lamp_daily
+    ns_row["light_on_hours"] = day * light_on_hours_daily
+    ns_row["t_air_mean_7d"] = float(ns_row.get("t_air_mean", 0.0)) * recent_days
+    ns_row["par_lamp_sum_7d"] = par_lamp_daily * recent_days
+    return ns_row
 
 
 def predict_next_from_bundle(
@@ -384,6 +534,41 @@ def predict_next_from_bundle(
     return {
         "plant_height_cm": round(max(height, 0.0), 3),
         "num_leaves": round(max(leaves, 0.0), 3),
+    }
+
+
+def predict_ns_from_bundle(
+    bundle: dict[str, Any],
+    row: dict[str, Any],
+) -> dict[str, Any]:
+    ns_models = bundle.get("ns_models", {})
+    if not ns_models:
+        return {}
+
+    feature_columns = bundle["ns_numeric_features"] + bundle["ns_categorical_features"]
+    features = pd.DataFrame([row])[feature_columns]
+    prediction = {
+        target: round(max(float(model.predict(features)[0]), 0.0), 3)
+        for target, model in ns_models.items()
+    }
+    ns_new = prediction.get("ns_new_per_plant_l", 0.0)
+    ns_added = prediction.get("ns_added_per_plant_l", 0.0)
+    if ns_new > 0.05:
+        action = "replace"
+        recommendation = f"Replace solution and add {ns_new:g} L fresh nutrient solution per plant"
+    elif ns_added > 0.05:
+        action = "add"
+        recommendation = f"Add {ns_added:g} L nutrient solution per plant"
+    else:
+        action = "none"
+        recommendation = "No nutrient solution addition scheduled"
+
+    return {
+        **prediction,
+        "ns_policy": row["ns_policy"],
+        "ec_limit": float(row["ec_limit"]),
+        "ns_action": action,
+        "ns_recommendation": recommendation,
     }
 
 
@@ -412,6 +597,7 @@ def run_recursive_demo(
 
     current_height = float(initial_state["plant_height_cm"])
     current_leaves = float(initial_state["num_leaves"])
+    ns_mapping = bundle["ec_to_ns_policy"][ec]
     predictions: list[dict[str, Any]] = [
         {
             "days_after_transplant": start_day,
@@ -434,12 +620,22 @@ def run_recursive_demo(
             "light": light,
         }
         prediction = predict_next_from_bundle(bundle, feature_row)
+        ns_row = {
+            **ns_environment_row(env_row),
+            "plant_height_cm": prediction["plant_height_cm"],
+            "num_leaves": prediction["num_leaves"],
+            "ec": ec,
+            "light": light,
+            **ns_mapping,
+        }
+        ns_prediction = predict_ns_from_bundle(bundle, ns_row)
         predictions.append(
             {
                 "days_after_transplant": int(env_row["days_after_transplant"]),
                 "ec": ec,
                 "light": light,
                 "prediction": prediction,
+                "ns_prediction": ns_prediction,
             }
         )
         current_height = prediction["plant_height_cm"]
@@ -458,9 +654,11 @@ def run_recursive_demo(
 def main() -> None:
     crop = load_crop_measurements()
     climate = aggregate_climate()
+    ns_training = load_ns_training_table()
     training, daily_state = build_transition_training_table(crop, climate)
     models, metrics = train_models(training)
-    save_model(models, metrics, training, daily_state)
+    ns_models, ns_metrics = train_ns_models(ns_training)
+    save_model(models, metrics, training, daily_state, ns_models, ns_metrics, ns_training)
 
     demo = run_recursive_demo()
     first = demo["predictions"][0]
@@ -479,9 +677,14 @@ def main() -> None:
     print("\nModel outputs:")
     print("  plant_height_cm: predicted plant height in cm")
     print("  num_leaves: predicted number of leaves")
+    print("  ns_added_per_plant_l: predicted nutrient solution addition in liters per plant")
+    print("  ns_new_per_plant_l: predicted fresh nutrient solution replacement in liters per plant")
+    print("  ns_residual_per_plant_l: predicted residual nutrient solution in liters per plant")
 
     print("\nCross-validation metrics:")
     print(metrics.round(3).to_string(index=False))
+    print("\nNS model cross-validation metrics:")
+    print(ns_metrics.round(3).to_string(index=False))
 
     print("\nRecursive prediction example:")
     print("  first :", first)
