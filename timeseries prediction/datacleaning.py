@@ -9,6 +9,9 @@ from typing import Iterable
 from xml.etree import ElementTree as ET
 from zipfile import ZipFile
 
+import numpy as np
+import pandas as pd
+
 
 ROOT = Path(__file__).resolve().parent
 OUT = ROOT / "cleaned_data"
@@ -17,6 +20,26 @@ TRANSPLANT_DATE = datetime(2023, 9, 4)
 NS = {"a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 REL_NS = {"rel": "http://schemas.openxmlformats.org/package/2006/relationships"}
 RAW_MISSING = {"", "NaN", "N/A", "NA", "nan", "n/a", "#DIV/0!"}
+
+NS_MONTHS = {
+    "January": 1,
+    "February": 2,
+    "March": 3,
+    "April": 4,
+    "May": 5,
+    "June": 6,
+    "July": 7,
+    "August": 8,
+    "September": 9,
+    "October": 10,
+    "November": 11,
+    "December": 12,
+}
+
+NS_EC_LIMIT_TO_TIMESERIES_EC = {
+    5.0: ("EC3", "low"),
+    10.0: ("EC6", "high"),
+}
 
 CLIMATE_ROUNDING = {
     "tout": 2,
@@ -213,6 +236,19 @@ def parse_treatment(treatment: str | None) -> tuple[str, str]:
     return ec, light
 
 
+def parse_ns_date(value: str | None) -> datetime | None:
+    text = normalise_value(value)
+    if "_" not in text:
+        return None
+    day, month = text.split("_", 1)
+    if month not in NS_MONTHS:
+        return None
+    try:
+        return datetime(2024, NS_MONTHS[month], int(day))
+    except ValueError:
+        return None
+
+
 def write_csv(path: Path, rows: list[dict[str, str]], preferred: list[str]) -> None:
     fields: list[str] = []
     for field in preferred:
@@ -319,12 +355,207 @@ def clean_destructive_harvest() -> list[dict[str, str]]:
     return cleaned
 
 
+def clean_ns_consumption() -> list[dict[str, str]]:
+    path = ROOT / "nsdataset.xlsx"
+    rows = row_dicts(read_xlsx_sheet(path, "NS consumption raw data"), 2)
+    parsed: list[dict[str, object]] = []
+    first_date: datetime | None = None
+
+    for row in rows:
+        ns_date = parse_ns_date(row.get("day"))
+        ec_limit = to_float(row.get("ec_limit"))
+        if ns_date is None or ec_limit not in NS_EC_LIMIT_TO_TIMESERIES_EC:
+            continue
+        first_date = ns_date if first_date is None else min(first_date, ns_date)
+        timeseries_ec, ns_policy = NS_EC_LIMIT_TO_TIMESERIES_EC[ec_limit]
+        parsed.append(
+            {
+                "original_day": normalise_value(row.get("day")),
+                "date": ns_date.date().isoformat(),
+                "ec_limit": ec_limit,
+                "timeseries_ec": timeseries_ec,
+                "ns_policy": ns_policy,
+                "replication": to_float(row.get("replication")),
+                "ns_new_per_plant_l": to_float(row.get("ns_new_plant")),
+                "ns_added_per_plant_l": to_float(row.get("ns_added_plant")),
+                "ns_residual_per_plant_l": to_float(row.get("ns_residual_plant")),
+            }
+        )
+
+    if first_date is None:
+        return []
+
+    cleaned: list[dict[str, str]] = []
+    for row in parsed:
+        ns_date = datetime.fromisoformat(str(row["date"]))
+        item = {
+            "ns_day": str((ns_date.date() - first_date.date()).days),
+            "original_day": str(row["original_day"]),
+            "date": str(row["date"]),
+            "ec_limit": format_number(str(row["ec_limit"])),
+            "timeseries_ec": str(row["timeseries_ec"]),
+            "ns_policy": str(row["ns_policy"]),
+            "replication": format_number(str(row["replication"]), 0),
+            "ns_new_per_plant_l": format_number(str(row["ns_new_per_plant_l"]), 3),
+            "ns_added_per_plant_l": format_number(str(row["ns_added_per_plant_l"]), 3),
+            "ns_residual_per_plant_l": format_number(str(row["ns_residual_per_plant_l"]), 3),
+        }
+        cleaned.append(item)
+    return cleaned
+
+
+def aggregate_ns_consumption(ns_rows: list[dict[str, str]]) -> pd.DataFrame:
+    ns = pd.DataFrame(ns_rows)
+    for column in [
+        "ns_day",
+        "ec_limit",
+        "replication",
+        "ns_new_per_plant_l",
+        "ns_added_per_plant_l",
+        "ns_residual_per_plant_l",
+    ]:
+        ns[column] = pd.to_numeric(ns[column], errors="coerce")
+
+    return (
+        ns.groupby(["ns_day", "timeseries_ec", "ns_policy", "ec_limit"], as_index=False)
+        .agg(
+            ns_new_per_plant_l=("ns_new_per_plant_l", "mean"),
+            ns_added_per_plant_l=("ns_added_per_plant_l", "mean"),
+            ns_residual_per_plant_l=("ns_residual_per_plant_l", "mean"),
+            ns_replications=("replication", "nunique"),
+        )
+        .rename(columns={"timeseries_ec": "ec", "ns_day": "days_after_transplant"})
+    )
+
+
+def aggregate_climate_for_mapping(climate_rows: list[dict[str, str]]) -> pd.DataFrame:
+    climate = pd.DataFrame(climate_rows)
+    climate["days_after_transplant"] = pd.to_numeric(
+        climate["days_after_transplant"], errors="coerce"
+    )
+    for column in ["t_air", "rh", "co2", "ligth_on", "part1", "par2", "par3", "par4"]:
+        climate[column] = pd.to_numeric(climate[column], errors="coerce")
+
+    climate["par_lamp"] = climate[["part1", "par2", "par3", "par4"]].mean(axis=1)
+    climate["light_on_fraction"] = climate["ligth_on"].clip(lower=0, upper=1)
+    daily = (
+        climate.groupby("days_after_transplant", as_index=False)
+        .agg(
+            t_air_mean=("t_air", "mean"),
+            rh_mean=("rh", "mean"),
+            co2_mean=("co2", "mean"),
+            par_lamp_daily=("par_lamp", "sum"),
+            light_on_hours_daily=("light_on_fraction", lambda s: s.sum() * 5 / 60),
+        )
+        .sort_values("days_after_transplant")
+    )
+    daily["par_lamp_sum"] = daily["par_lamp_daily"].cumsum()
+    daily["light_on_hours"] = daily["light_on_hours_daily"].cumsum()
+    daily["t_air_mean_7d"] = daily["t_air_mean"].rolling(7, min_periods=1).sum()
+    daily["par_lamp_sum_7d"] = daily["par_lamp_daily"].rolling(7, min_periods=1).sum()
+    return daily
+
+
+def daily_growth_states_for_mapping(crop_rows: list[dict[str, str]]) -> pd.DataFrame:
+    crop = pd.DataFrame(crop_rows)
+    crop["days_after_transplant"] = pd.to_numeric(
+        crop["days_after_transplant"], errors="coerce"
+    )
+    crop["plant_height_cm"] = pd.to_numeric(crop["plantheigth"], errors="coerce")
+    crop["num_leaves"] = pd.to_numeric(crop["num_leaves"], errors="coerce")
+
+    observations = (
+        crop.groupby(["days_after_transplant", "treatment", "ec", "light"], as_index=False)[
+            ["plant_height_cm", "num_leaves"]
+        ]
+        .mean()
+        .dropna(subset=["days_after_transplant", "ec", "light"])
+    )
+
+    daily_states: list[pd.DataFrame] = []
+    for treatment, group in observations.groupby("treatment"):
+        group = group.sort_values("days_after_transplant")
+        days = range(
+            int(group["days_after_transplant"].min()),
+            int(group["days_after_transplant"].max()) + 1,
+        )
+        state = pd.DataFrame(
+            {
+                "days_after_transplant": list(days),
+                "treatment": treatment,
+                "ec": group["ec"].iloc[0],
+                "light": group["light"].iloc[0],
+            }
+        )
+        for target in ["plant_height_cm", "num_leaves"]:
+            target_group = group.dropna(subset=[target])
+            state[target] = pd.Series(
+                np.interp(
+                    state["days_after_transplant"].to_numpy(dtype=float),
+                    target_group["days_after_transplant"].to_numpy(dtype=float),
+                    target_group[target].to_numpy(dtype=float),
+                )
+            )
+        daily_states.append(state)
+    return pd.concat(daily_states, ignore_index=True)
+
+
+def build_mapped_ns_training_table(
+    climate_rows: list[dict[str, str]],
+    crop_rows: list[dict[str, str]],
+    ns_rows: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    ns_daily = aggregate_ns_consumption(ns_rows)
+    climate_daily = aggregate_climate_for_mapping(climate_rows)
+    growth_daily = daily_growth_states_for_mapping(crop_rows)
+
+    mapped = (
+        growth_daily.merge(ns_daily, on=["days_after_transplant", "ec"], how="inner")
+        .merge(climate_daily, on="days_after_transplant", how="inner")
+        .sort_values(["ec", "light", "days_after_transplant"])
+    )
+
+    preferred = [
+        "days_after_transplant",
+        "ec",
+        "ns_policy",
+        "ec_limit",
+        "light",
+        "treatment",
+        "plant_height_cm",
+        "num_leaves",
+        "t_air_mean",
+        "rh_mean",
+        "co2_mean",
+        "par_lamp_daily",
+        "light_on_hours_daily",
+        "par_lamp_sum",
+        "light_on_hours",
+        "t_air_mean_7d",
+        "par_lamp_sum_7d",
+        "ns_new_per_plant_l",
+        "ns_added_per_plant_l",
+        "ns_residual_per_plant_l",
+        "ns_replications",
+    ]
+    mapped = mapped[preferred]
+    return [
+        {
+            column: format_number(str(value), 3) if isinstance(value, float) else str(value)
+            for column, value in row.items()
+        }
+        for row in mapped.to_dict(orient="records")
+    ]
+
+
 def main() -> None:
     OUT.mkdir(exist_ok=True)
 
     climate = clean_climate()
     crop = clean_crop_measurements()
     harvest = clean_destructive_harvest()
+    ns = clean_ns_consumption()
+    mapped_ns = build_mapped_ns_training_table(climate, crop, ns)
 
     write_csv(
         OUT / "climate_timeseries_clean.csv",
@@ -363,11 +594,56 @@ def main() -> None:
             "plant_id",
         ],
     )
+    write_csv(
+        OUT / "ns_consumption_clean.csv",
+        ns,
+        [
+            "ns_day",
+            "original_day",
+            "date",
+            "ec_limit",
+            "timeseries_ec",
+            "ns_policy",
+            "replication",
+            "ns_new_per_plant_l",
+            "ns_added_per_plant_l",
+            "ns_residual_per_plant_l",
+        ],
+    )
+    write_csv(
+        OUT / "mapped_ns_training_table.csv",
+        mapped_ns,
+        [
+            "days_after_transplant",
+            "ec",
+            "ns_policy",
+            "ec_limit",
+            "light",
+            "treatment",
+            "plant_height_cm",
+            "num_leaves",
+            "t_air_mean",
+            "rh_mean",
+            "co2_mean",
+            "par_lamp_daily",
+            "light_on_hours_daily",
+            "par_lamp_sum",
+            "light_on_hours",
+            "t_air_mean_7d",
+            "par_lamp_sum_7d",
+            "ns_new_per_plant_l",
+            "ns_added_per_plant_l",
+            "ns_residual_per_plant_l",
+            "ns_replications",
+        ],
+    )
 
     print("Data cleaning complete.")
     print(f"  {OUT / 'climate_timeseries_clean.csv'} rows={len(climate)}")
     print(f"  {OUT / 'crop_measurements_clean.csv'} rows={len(crop)}")
     print(f"  {OUT / 'destructive_harvest_clean.csv'} rows={len(harvest)}")
+    print(f"  {OUT / 'ns_consumption_clean.csv'} rows={len(ns)}")
+    print(f"  {OUT / 'mapped_ns_training_table.csv'} rows={len(mapped_ns)}")
 
 
 if __name__ == "__main__":
