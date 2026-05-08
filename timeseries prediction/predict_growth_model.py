@@ -284,10 +284,13 @@ class RecursiveGrowthForecaster:
 
 
 _FORECASTER: RecursiveGrowthForecaster | None = None
+_FORECASTER_MTIME: float | None = None
 
 
 def predict_growth(input_data: dict[str, Any]) -> dict[str, Any]:
-    global _FORECASTER
-    if _FORECASTER is None:
+    global _FORECASTER, _FORECASTER_MTIME
+    model_mtime = MODEL_PATH.stat().st_mtime
+    if _FORECASTER is None or _FORECASTER_MTIME != model_mtime:
         _FORECASTER = RecursiveGrowthForecaster()
+        _FORECASTER_MTIME = model_mtime
     return _FORECASTER.predict(input_data)
