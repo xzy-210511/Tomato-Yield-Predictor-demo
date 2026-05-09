@@ -32,6 +32,7 @@ import {
 } from 'recharts'
 import { predictGrowth, predictTimeSeries } from '../api/predict'
 import { analyzeYieldInput } from '../lib/advisor'
+import { analyzeTimeSeriesInput } from '../lib/timeSeriesAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel'
 
 const FIELD_INFO = {
@@ -332,6 +333,15 @@ export default function InputPage() {
       actionDays,
     }
   }, [timeSeriesChartData])
+
+  const timeSeriesAdvisorSuggestions = useMemo(() => {
+    if (!timeSeriesResult?.predictions) return []
+    return analyzeTimeSeriesInput(
+      timeSeriesForm,
+      timeSeriesResult.predictions,
+      trajectoryStats
+    ).suggestions
+  }, [timeSeriesForm, timeSeriesResult, trajectoryStats])
 
   const timeSeriesSummary = useMemo(() => {
     if (timeSeriesChartData.length < 2) {
@@ -962,6 +972,12 @@ export default function InputPage() {
                               )
                             })}
                           </div>
+                        </div>
+                      )}
+
+                      {timeSeriesResult && (
+                        <div className="mt-8">
+                          <AdvisorPanel suggestions={timeSeriesAdvisorSuggestions} />
                         </div>
                       )}
                     </div>
