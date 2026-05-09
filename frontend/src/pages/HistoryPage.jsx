@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Activity,
@@ -28,6 +28,19 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { deleteRecord, listRecords, renameRecord } from '../api/records';
+
+function normalizeRecord(record) {
+  return {
+    id: record.id,
+    name: record.recordName,
+    time: record.createdAt,
+    input: record.input || {},
+    output: record.summaryValue,
+    rawOutput: record.output,
+    savedRecordType: record.recordType,
+  };
+}
 
 function getRecordType(input = {}) {
   if (input.variety) return input.variety;
@@ -55,9 +68,11 @@ function DetailItem({ label, value }) {
 export default function HistoryPage() {
   const navigate = useNavigate();
 
-  const [historyData, setHistoryData] = useState(() => {
-    return JSON.parse(localStorage.getItem('history') || '[]');
-  });
+  const userId = localStorage.getItem('userId');
+
+  const [historyData, setHistoryData] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [selectedIndices, setSelectedIndices] = useState([]);
   const [compareMode, setCompareMode] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -65,26 +80,62 @@ export default function HistoryPage() {
   const [sortConfig, setSortConfig] = useState({ key: 'time', direction: 'desc' });
   const [expandedRow, setExpandedRow] = useState(null);
 
-  const saveToStorage = (newData) => {
-    setHistoryData(newData);
-    localStorage.setItem('history', JSON.stringify(newData));
-  };
+  useEffect(() => {
+    if (!userId) {
+      setHistoryData([]);
+      setError('Sign in to view saved simulation history.');
+      return;
+    }
 
-  const handleRename = (index, currentName) => {
+    let isActive = true;
+    setLoading(true);
+    setError('');
+
+    listRecords(userId)
+      .then(records => {
+        if (!isActive) return;
+        setHistoryData(records.map(normalizeRecord));
+      })
+      .catch(e => {
+        if (!isActive) return;
+        setError(e.message || 'Failed to load history.');
+      })
+      .finally(() => {
+        if (isActive) setLoading(false);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [userId]);
+
+  const handleRename = async (index, currentName) => {
+    if (!userId) return;
     const newName = prompt('Enter a custom name for this record:', currentName || '');
     if (newName !== null && newName.trim() !== '') {
-      const updated = [...historyData];
-      updated[index].name = newName.trim();
-      saveToStorage(updated);
+      try {
+        const updatedRecord = await renameRecord(historyData[index].id, userId, newName.trim());
+        const updated = [...historyData];
+        updated[index] = normalizeRecord(updatedRecord);
+        setHistoryData(updated);
+      } catch (e) {
+        setError(e.message || 'Failed to rename record.');
+      }
     }
   };
 
-  const handleDelete = (index) => {
+  const handleDelete = async (index) => {
+    if (!userId) return;
     if (window.confirm('Are you sure you want to delete this record?')) {
-      const updated = historyData.filter((_, i) => i !== index);
-      saveToStorage(updated);
-      setSelectedIndices(prev => prev.filter(i => i !== index));
-      if (expandedRow === index) setExpandedRow(null);
+      try {
+        await deleteRecord(historyData[index].id, userId);
+        const updated = historyData.filter((_, i) => i !== index);
+        setHistoryData(updated);
+        setSelectedIndices(prev => prev.filter(i => i !== index));
+        if (expandedRow === index) setExpandedRow(null);
+      } catch (e) {
+        setError(e.message || 'Failed to delete record.');
+      }
     }
   };
 
@@ -152,6 +203,18 @@ export default function HistoryPage() {
             {compareMode ? 'Exit Comparison' : 'Compare Analytics'}
           </button>
         </div>
+
+        {error && (
+          <div className="bg-red-50 border border-red-100 text-red-600 px-5 py-3 rounded-2xl text-sm font-bold">
+            {error}
+          </div>
+        )}
+
+        {loading && (
+          <div className="bg-white border border-slate-200 px-5 py-3 rounded-2xl text-sm font-bold text-slate-500">
+            Loading history...
+          </div>
+        )}
 
         {compareMode && (
           <div className="bg-white rounded-[2rem] p-8 border border-slate-200 shadow-xl shadow-slate-200/50 animate-in fade-in zoom-in duration-500">
