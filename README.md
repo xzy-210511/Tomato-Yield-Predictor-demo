@@ -143,6 +143,7 @@ Flyway creates these tables automatically when Spring Boot starts:
 ```text
 prediction_records
 users
+simulation_records
 ```
 
 `prediction_records` stores the submitted greenhouse inputs, the predicted yield, a model version label, and the creation time.
@@ -157,6 +158,21 @@ created_at
 ```
 
 The current implementation stores passwords as plain text to keep the prototype simple. This is only suitable for local demo use. Before real deployment, replace this with password hashing such as BCrypt.
+
+`simulation_records` stores the history shown on the History page:
+
+```text
+id
+user_id
+record_name
+record_type
+input_json
+output_json
+summary_value
+created_at
+```
+
+`user_id` references `users.id`. If a user is deleted, their simulation records are deleted as well. The `input_json` and `output_json` columns allow the same table to store both yield predictions and time-series predictions.
 
 ### Start PostgreSQL with Docker
 
@@ -192,6 +208,8 @@ This mode persists registered users and prediction records in PostgreSQL.
 When `/api/predict` returns successfully, Spring Boot saves one row into `prediction_records`.
 
 When `/api/auth/register` returns successfully, Spring Boot saves one row into `users`.
+
+When a logged-in user runs a yield or time-series prediction, the frontend saves one row into `simulation_records` through `/api/records`. If the user is not logged in, the prediction still runs but history is not saved.
 
 ### Start the Vite development server
 
@@ -318,6 +336,10 @@ python.api.base-url=http://127.0.0.1:8001
 POST /api/predict
 POST /api/auth/register
 POST /api/auth/login
+POST /api/records
+GET  /api/records?userId={userId}
+PATCH /api/records/{id}?userId={userId}
+DELETE /api/records/{id}?userId={userId}
 ```
 
 `/api/auth/register` creates a new user if the username is not already taken.
@@ -325,6 +347,13 @@ POST /api/auth/login
 `/api/auth/login` checks the submitted username and password against the `users` table.
 
 The frontend stores the logged-in user's `username` and `userId` in `localStorage` after a successful login or registration. There is currently no token, session, or Spring Security layer.
+
+`/api/records` stores and manages saved simulation history for the History page. The current implementation uses `userId` as a request parameter to scope records to a user.
+
+- `POST /api/records`: create a saved history record
+- `GET /api/records?userId={userId}`: list records for one user
+- `PATCH /api/records/{id}?userId={userId}`: rename one record
+- `DELETE /api/records/{id}?userId={userId}`: delete one record
 
 ### Python model service
 
