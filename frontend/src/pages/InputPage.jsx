@@ -30,6 +30,7 @@ import {
   YAxis,
 } from 'recharts'
 import { predictGrowth, predictTimeSeries } from '../api/predict'
+import { createRecord } from '../api/records'
 
 const FIELD_INFO = {
   avgTemperatureC: 'Average greenhouse temperature (C). Tip: Measure at plant height.',
@@ -163,6 +164,7 @@ export default function InputPage() {
   const [timeSeriesResult, setTimeSeriesResult] = useState(null)
   const navigate = useNavigate()
   const user = localStorage.getItem('user')
+  const userId = localStorage.getItem('userId')
 
   const updateField = (key, value) => setForm(prev => ({ ...prev, [key]: value }))
   const updateTimeSeriesField = (key, value) =>
@@ -229,6 +231,22 @@ export default function InputPage() {
     }
   }, [timeSeriesChartData, timeSeriesForm.co2Mean])
 
+  const saveRecord = async ({ recordType, input, output, summaryValue }) => {
+    if (!userId) return
+
+    try {
+      await createRecord({
+        userId: parseInt(userId, 10),
+        recordType,
+        input,
+        output,
+        summaryValue,
+      })
+    } catch (e) {
+      setError(e.message ? `Prediction completed, but history was not saved: ${e.message}` : 'Prediction completed, but history was not saved.')
+    }
+  }
+
   const handlePredict = async () => {
     setLoading(true)
     setError('')
@@ -239,11 +257,12 @@ export default function InputPage() {
       const response = await predictGrowth(payload)
       if (response && response.predicted_yield_kg_per_m2 !== undefined) {
         setResult({ response, payload })
-        const history = JSON.parse(localStorage.getItem('history') || '[]')
-        localStorage.setItem('history', JSON.stringify([
-          { time: new Date().toISOString(), input: payload, output: response.predicted_yield_kg_per_m2 },
-          ...history,
-        ]))
+        await saveRecord({
+          recordType: 'yield',
+          input: payload,
+          output: response,
+          summaryValue: response.predicted_yield_kg_per_m2,
+        })
       } else {
         throw new Error('Invalid response format.')
       }
@@ -276,6 +295,13 @@ export default function InputPage() {
         throw new Error('Invalid time-series response format.')
       }
       setTimeSeriesResult(response)
+      const finalPrediction = response.predictions.at(-1)
+      await saveRecord({
+        recordType: 'timeseries',
+        input: payload,
+        output: response,
+        summaryValue: finalPrediction?.plant_height_cm,
+      })
     } catch (e) {
       setError(e.message || 'Time-series forecast failed.')
     } finally {
