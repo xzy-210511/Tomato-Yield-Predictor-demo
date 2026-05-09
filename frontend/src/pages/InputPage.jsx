@@ -373,6 +373,7 @@ export default function InputPage() {
   const handlePredict = async () => {
     setLoading(true)
     setError('')
+    setResult(null)
     try {
       const payload = Object.fromEntries(
         Object.entries(form).map(([k, v]) => [k, k === 'variety' ? v : parseFloat(v)])

@@ -1,3 +1,15 @@
+async function readErrorMessage(res) {
+  const contentType = res.headers.get('content-type') || ''
+
+  if (contentType.includes('application/json')) {
+    const data = await res.json()
+    return data?.message || data?.detail || `Server error ${res.status}`
+  }
+
+  const text = await res.text()
+  return text || `Server error ${res.status}`
+}
+
 export async function predictGrowth(payload) {
   const res = await fetch('/api/predict', {
     method: 'POST',
@@ -6,8 +18,7 @@ export async function predictGrowth(payload) {
   })
 
   if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Server error ${res.status}: ${text}`)
+    throw new Error(await readErrorMessage(res))
   }
 
   return res.json()
@@ -21,8 +32,7 @@ export async function predictTimeSeries(payload) {
   })
 
   if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Server error ${res.status}: ${text}`)
+    throw new Error(await readErrorMessage(res))
   }
 
   return res.json()
