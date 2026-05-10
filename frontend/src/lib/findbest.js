@@ -232,25 +232,25 @@ export function buildYieldCandidates(payload) {
     {
       key: 'fertilizerNKgHa',
       options: makeOptions(baseValues.fertilizerNKgHa, [
-        clamp(baseValues.fertilizerNKgHa - 15, 80, 220),
+        clamp(baseValues.fertilizerNKgHa - 15, 140, 220),
         baseValues.fertilizerNKgHa,
-        clamp(baseValues.fertilizerNKgHa + 15, 80, 220),
+        clamp(baseValues.fertilizerNKgHa + 15, 140, 220),
       ], 'N', formatKgHa),
     },
     {
       key: 'fertilizerPKgHa',
       options: makeOptions(baseValues.fertilizerPKgHa, [
-        clamp(baseValues.fertilizerPKgHa - 10, 30, 120),
+        clamp(baseValues.fertilizerPKgHa - 10, 45, 120),
         baseValues.fertilizerPKgHa,
-        clamp(baseValues.fertilizerPKgHa + 10, 30, 120),
+        clamp(baseValues.fertilizerPKgHa + 10, 45, 120),
       ], 'P', formatKgHa),
     },
     {
       key: 'fertilizerKKgHa',
       options: makeOptions(baseValues.fertilizerKKgHa, [
-        clamp(baseValues.fertilizerKKgHa - 15, 80, 260),
+        clamp(baseValues.fertilizerKKgHa - 15, 140, 255),
         baseValues.fertilizerKKgHa,
-        clamp(baseValues.fertilizerKKgHa + 15, 80, 260),
+        clamp(baseValues.fertilizerKKgHa + 15, 140, 255),
       ], 'K', formatKgHa),
     },
     {

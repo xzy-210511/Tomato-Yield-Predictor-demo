@@ -508,7 +508,12 @@ export default function InputPage() {
 
       for (let i = 0; i < candidates.length; i += 1) {
         const candidate = candidates[i]
-        const response = await predictGrowth(candidate.payload)
+        let response = null
+        try {
+          response = await predictGrowth(candidate.payload)
+        } catch {
+          continue
+        }
         if (response && response.predicted_yield_kg_per_m2 > best.predictedYield) {
           best = {
             label: candidate.label,

@@ -6,6 +6,7 @@ $frontendDir = Join-Path $projectRoot 'frontend'
 $frontendDistDir = Join-Path $frontendDir 'dist'
 $staticDir = Join-Path $projectRoot 'src\main\resources\static'
 $staticAssetsDir = Join-Path $staticDir 'assets'
+$staticModelsDir = Join-Path $staticDir 'models'
 $timeSeriesDir = Join-Path $projectRoot 'timeseries prediction'
 $timeSeriesCleanedDir = Join-Path $timeSeriesDir 'cleaned_data'
 $timeSeriesModelDir = Join-Path $timeSeriesDir 'model_outputs'
@@ -94,6 +95,14 @@ if (Test-Path $frontendDir) {
 
     Copy-Item -Path (Join-Path $frontendDistDir 'index.html') -Destination (Join-Path $staticDir 'index.html') -Force
     Copy-Item -Path (Join-Path $frontendDistDir 'assets') -Destination $staticAssetsDir -Recurse -Force
+
+    $frontendDistModelsDir = Join-Path $frontendDistDir 'models'
+    if (Test-Path $frontendDistModelsDir) {
+        if (Test-Path $staticModelsDir) {
+            Remove-Item -Recurse -Force $staticModelsDir
+        }
+        Copy-Item -Path $frontendDistModelsDir -Destination $staticModelsDir -Recurse -Force
+    }
 }
 
 Write-Host 'Installing Python model dependencies ...'
