@@ -30,6 +30,8 @@ import {
 } from 'recharts';
 import { deleteRecord, listRecords, renameRecord } from '../api/records';
 
+const SERIES_COLORS = ['#0ea5e9', '#22c55e', '#f97316', '#8b5cf6', '#ef4444', '#14b8a6'];
+
 function buildTimeSeriesData(output = {}) {
   let cumulativeNs = 0;
   return (output.predictions || []).map(point => {
@@ -80,6 +82,22 @@ function isTimeSeriesRecord(record = {}) {
 
 function isYieldRecord(record = {}) {
   return !isTimeSeriesRecord(record) && typeof record.output === 'number' && Number.isFinite(record.output);
+}
+
+function isComparableRecord(record = {}) {
+  return isYieldRecord(record) || (isTimeSeriesRecord(record) && record.seriesData?.length > 0);
+}
+
+function getComparisonKind(record = {}) {
+  if (isYieldRecord(record)) return 'yield';
+  if (isTimeSeriesRecord(record) && record.seriesData?.length > 0) return 'timeseries';
+  return null;
+}
+
+function canSelectForComparison(record, selectedRecords) {
+  if (!isComparableRecord(record)) return false;
+  const selectedKind = getComparisonKind(selectedRecords[0]);
+  return !selectedKind || getComparisonKind(record) === selectedKind;
 }
 
 function getRecordType(input = {}, record = {}) {
@@ -168,6 +186,57 @@ function RecordDetailSummary({ item }) {
         {formatNumber(item.output)} <span className="text-xs">{getRecordUnit(item.input, item)}</span>
       </p>
       <p className="text-[10px] text-brand-500 font-bold mt-1">Validated Model</p>
+    </div>
+  );
+}
+
+function buildTimeSeriesMetricData(records, metricKey) {
+  const days = [...new Set(records.flatMap(record => record.seriesData.map(point => point.day)))].sort((a, b) => a - b);
+
+  return days.map(day => {
+    const row = { day };
+    records.forEach((record, index) => {
+      const point = record.seriesData.find(item => item.day === day);
+      row[`record_${index}`] = point?.[metricKey];
+    });
+    return row;
+  });
+}
+
+function TimeSeriesComparisonChart({ title, unit, metricKey, records }) {
+  const chartData = buildTimeSeriesMetricData(records, metricKey);
+
+  return (
+    <div className="border border-slate-100 rounded-2xl p-4 bg-slate-50/50">
+      <h4 className="text-sm font-black text-slate-800 mb-4">{title}</h4>
+      <div className="h-64 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+            <XAxis dataKey="day" fontSize={11} tickLine={false} axisLine={false} dy={10} />
+            <YAxis fontSize={11} tickLine={false} axisLine={false} dx={-10} unit={` ${unit}`} />
+            <Tooltip
+              formatter={(value, name) => [`${formatNumber(value)} ${unit}`, name]}
+              labelFormatter={(day) => `Day ${day}`}
+              contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}
+            />
+            <Legend />
+            {records.map((record, index) => (
+              <Line
+                key={record.id}
+                type="monotone"
+                dataKey={`record_${index}`}
+                name={record.name || `Record ${index + 1}`}
+                stroke={SERIES_COLORS[index % SERIES_COLORS.length]}
+                strokeWidth={3}
+                dot={false}
+                activeDot={{ r: 6 }}
+                connectNulls
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
@@ -264,7 +333,15 @@ export default function HistoryPage() {
       });
   }, [historyData, searchTerm, filterType, sortConfig]);
 
-  const chartData = useMemo(() => {
+  const selectedRecords = useMemo(() => {
+    return selectedIndices
+      .map(idx => historyData[idx])
+      .filter(Boolean);
+  }, [selectedIndices, historyData]);
+
+  const selectedComparisonKind = getComparisonKind(selectedRecords[0]);
+
+  const yieldChartData = useMemo(() => {
     return selectedIndices
       .map(idx => historyData[idx])
       .filter(isYieldRecord)
@@ -278,8 +355,16 @@ export default function HistoryPage() {
       .sort((a, b) => a.timestamp - b.timestamp);
   }, [selectedIndices, historyData]);
 
-  const selectedYieldCount = chartData.length;
-  const comparisonBaseline = chartData[0]?.output;
+  const timeSeriesComparisonRecords = useMemo(() => {
+    return selectedIndices
+      .map(idx => historyData[idx])
+      .filter(record => isTimeSeriesRecord(record) && record.seriesData?.length > 0)
+      .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  }, [selectedIndices, historyData]);
+
+  const selectedYieldCount = yieldChartData.length;
+  const selectedTimeSeriesCount = timeSeriesComparisonRecords.length;
+  const comparisonBaseline = yieldChartData[0]?.output;
 
   const filterOptions = useMemo(() => {
     return ['All', ...new Set(historyData.map(item => getRecordType(item.input, item)).filter(Boolean))];
@@ -337,16 +422,20 @@ export default function HistoryPage() {
                 <Activity size={20} className="text-brand-600" />
               </div>
               <div>
-                <h3 className="font-bold text-slate-800 text-lg">Yield Record Comparison</h3>
-                <p className="text-xs font-bold text-slate-400">Select two or more yield records to compare final predicted yield.</p>
+                <h3 className="font-bold text-slate-800 text-lg">
+                  {selectedComparisonKind === 'timeseries' ? 'Time-Series Growth Comparison' : 'Yield Record Comparison'}
+                </h3>
+                <p className="text-xs font-bold text-slate-400">
+                  Select two or more records of the same type to compare saved prediction results.
+                </p>
               </div>
             </div>
 
-            {selectedYieldCount >= 2 ? (
+            {selectedComparisonKind === 'yield' && selectedYieldCount >= 2 ? (
               <div className="space-y-6">
                 <div className="h-72 w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chartData}>
+                    <LineChart data={yieldChartData}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                       <XAxis dataKey="label" fontSize={11} tickLine={false} axisLine={false} dy={10} />
                       <YAxis fontSize={11} tickLine={false} axisLine={false} dx={-10} unit=" kg/m2" />
@@ -368,7 +457,7 @@ export default function HistoryPage() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {chartData.map(record => {
+                  {yieldChartData.map(record => {
                     const difference = typeof comparisonBaseline === 'number' ? record.output - comparisonBaseline : 0;
                     const sign = difference > 0 ? '+' : '';
                     return (
@@ -381,19 +470,60 @@ export default function HistoryPage() {
                           <p className="text-lg font-black text-brand-700 tabular-nums">{formatNumber(record.output)}</p>
                         </div>
                         <p className="mt-2 text-xs font-bold text-slate-500">
-                          {record === chartData[0] ? 'Baseline record' : `${sign}${formatNumber(difference)} kg/m2 vs baseline`}
+                          {record === yieldChartData[0] ? 'Baseline record' : `${sign}${formatNumber(difference)} kg/m2 vs baseline`}
                         </p>
                       </div>
                     );
                   })}
                 </div>
               </div>
+            ) : selectedComparisonKind === 'timeseries' && selectedTimeSeriesCount >= 2 ? (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  <TimeSeriesComparisonChart
+                    title="Plant Height Over Time"
+                    unit="cm"
+                    metricKey="plantHeightCm"
+                    records={timeSeriesComparisonRecords}
+                  />
+                  <TimeSeriesComparisonChart
+                    title="Leaf Count Over Time"
+                    unit="leaves"
+                    metricKey="numLeaves"
+                    records={timeSeriesComparisonRecords}
+                  />
+                  <div className="xl:col-span-2">
+                    <TimeSeriesComparisonChart
+                      title="Cumulative NS Supply Over Time"
+                      unit="L/plant"
+                      metricKey="cumulativeNs"
+                      records={timeSeriesComparisonRecords}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {timeSeriesComparisonRecords.map(record => (
+                    <div key={record.id} className="border border-slate-100 rounded-2xl p-4 bg-slate-50/60">
+                      <p className="text-sm font-black text-slate-800">{record.name || new Date(record.time).toLocaleTimeString()}</p>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-3">Time-Series</p>
+                      <div className="space-y-2">
+                        <DetailItem label="Final Height" value={`${formatNumber(record.finalPlantHeight)} cm`} />
+                        <DetailItem label="Final Leaves" value={`${formatNumber(record.finalLeafCount)} leaves`} />
+                        <DetailItem label="Total NS" value={`${formatNumber(record.totalNsSupply)} L/plant`} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             ) : (
               <div className="h-64 flex flex-col items-center justify-center border-2 border-dashed border-slate-100 rounded-[2rem] text-slate-400 bg-slate-50/50">
                 <Info size={32} className="mb-3 opacity-30" />
-                <p className="font-medium">Select at least two yield records to compare results</p>
+                <p className="font-medium">Select at least two records of the same type to compare results</p>
                 {selectedIndices.length > 0 && (
-                  <p className="text-xs font-bold mt-2">Time-series records are stored in history but are not included in this yield comparison.</p>
+                  <p className="text-xs font-bold mt-2">
+                    Current selection: {selectedComparisonKind === 'timeseries' ? 'time-series growth records' : 'yield records'}
+                  </p>
                 )}
               </div>
             )}
@@ -443,23 +573,25 @@ export default function HistoryPage() {
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {processedData.length > 0 ? (
-                  processedData.map((item) => (
+                  processedData.map((item) => {
+                    const canCompareItem = canSelectForComparison(item, selectedRecords);
+                    return (
                     <React.Fragment key={item.originalIndex}>
                       <tr className={`group transition-all hover:bg-slate-50/60 ${selectedIndices.includes(item.originalIndex) ? 'bg-brand-50/30' : ''}`}>
                         {compareMode && (
                           <td className="p-6 text-center">
                             <input
                               type="checkbox"
-                              disabled={!isYieldRecord(item)}
+                              disabled={!canCompareItem}
                               checked={selectedIndices.includes(item.originalIndex)}
                               onChange={() => {
-                                if (!isYieldRecord(item)) return;
+                                if (!canCompareItem) return;
                                 const idx = item.originalIndex;
                                 setSelectedIndices(prev =>
                                   prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]
                                 );
                               }}
-                              title={isYieldRecord(item) ? 'Select yield record for comparison' : 'Time-series comparison will be added separately'}
+                              title={canCompareItem ? 'Select record for comparison' : 'Select records of the same type for comparison'}
                               className="w-5 h-5 rounded-lg border-slate-300 text-brand-600 focus:ring-brand-500 cursor-pointer disabled:cursor-not-allowed disabled:opacity-30"
                             />
                           </td>
@@ -551,7 +683,8 @@ export default function HistoryPage() {
                         </tr>
                       )}
                     </React.Fragment>
-                  ))
+                    );
+                  })
                 ) : (
                   <tr>
                     <td colSpan={compareMode ? 5 : 4} className="p-20 text-center">
