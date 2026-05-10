@@ -211,6 +211,45 @@ When `/api/auth/register` returns successfully, Spring Boot saves one row into `
 
 When a logged-in user runs a yield or time-series prediction, the frontend saves one row into `simulation_records` through `/api/records`. If the user is not logged in, the prediction still runs but history is not saved.
 
+### History page behavior
+
+The History page reads saved rows from `simulation_records`.
+
+Yield prediction records show:
+
+- record name and creation time
+- tomato variety as the record type
+- final predicted yield in `kg/m2`
+- expanded input details
+
+Time-series records show:
+
+- final plant height in `cm`
+- final leaf count
+- total nutrient solution supply in `L/plant`
+- expanded input details and the same summary values
+
+Comparison mode supports two separate workflows:
+
+- select two or more yield records to compare final predicted yield
+- select two or more time-series records to compare plant height, leaf count, and cumulative nutrient solution curves
+
+The first selected record decides the comparison type. After selecting a yield record, only yield records can be added to the current comparison. After selecting a time-series record, only time-series records can be added. Exit comparison mode to start a different comparison type.
+
+### Manual history checks
+
+Use Vite at `http://localhost:5173/` while checking frontend behavior.
+
+1. Register or log in.
+2. Run and save at least two yield predictions.
+3. Open History and confirm the yield rows show `kg/m2` results.
+4. Click `Compare Analytics`, select two yield rows, and confirm the yield comparison chart and baseline difference cards appear.
+5. Exit comparison mode.
+6. Run and save at least two time-series forecasts.
+7. Open History and confirm the time-series rows show final height, final leaves, and total NS.
+8. Click `Compare Analytics`, select two time-series rows, and confirm the three comparison charts appear: plant height, leaf count, and cumulative NS supply.
+9. Refresh the browser and reopen History to confirm the saved records still load from the backend database.
+
 ### Start the Vite development server
 
 Use this when working on files under `frontend/src` and you want hot reload.
