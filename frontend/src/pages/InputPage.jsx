@@ -482,6 +482,33 @@ export default function InputPage() {
     }
   }
 
+  const scoreGrowthCurve = (currentPoints, candidatePoints) => {
+    let heightScore = 0
+    let leafScore = 0
+    let matchedCount = 0
+
+    for (let i = 0; i < currentPoints.length; i += 1) {
+      const currentPoint = currentPoints[i]
+      let candidatePoint = null
+
+      for (let j = 0; j < candidatePoints.length; j += 1) {
+        if (candidatePoints[j].day === currentPoint.day) {
+          candidatePoint = candidatePoints[j]
+          break
+        }
+      }
+
+      if (!candidatePoint) continue
+
+      heightScore += (candidatePoint.plantHeightCm - currentPoint.plantHeightCm) / Math.max(currentPoint.plantHeightCm, 1)
+      leafScore += (candidatePoint.numLeaves - currentPoint.numLeaves) / Math.max(currentPoint.numLeaves, 1)
+      matchedCount += 1
+    }
+
+    if (matchedCount === 0) return 0
+    return (heightScore + leafScore) / matchedCount
+  }
+
   const handleFindBestGrowth = async (baseForm, baseResponse) => {
     const sourceForm = baseForm || timeSeriesForm
     const sourceResponse = baseResponse || timeSeriesResult
@@ -511,11 +538,7 @@ export default function InputPage() {
         const summary = summarizeTrajectory(points)
         if (!summary || !currentSummary) continue
 
-        const heightGain = summary.finalHeight - currentSummary.finalHeight
-        const leafGain = summary.finalLeaves - currentSummary.finalLeaves
-        const heightScore = heightGain / Math.max(currentSummary.finalHeight, 1)
-        const leafScore = leafGain / Math.max(currentSummary.finalLeaves, 1)
-        const candidateScore = heightScore + leafScore
+        const candidateScore = scoreGrowthCurve(currentPoints, points)
 
         if (candidateScore > bestScore) {
           bestScore = candidateScore
@@ -533,6 +556,7 @@ export default function InputPage() {
         testedCount: candidates.length,
         currentSummary,
         best,
+        hasImprovement: bestScore > 0,
         comparisonData: buildTimeSeriesComparison(currentPoints, best.points),
       })
     } catch (e) {
@@ -1154,7 +1178,9 @@ export default function InputPage() {
                                   <div className="flex items-center justify-between mb-3">
                                     <div className="flex items-center gap-4 text-[11px] font-black uppercase tracking-widest">
                                       <span className="flex items-center gap-2 text-slate-500"><span className="w-3 h-3 rounded-full bg-slate-400" /> Before</span>
-                                      <span className="flex items-center gap-2 text-emerald-600"><span className="w-3 h-3 rounded-full bg-emerald-500" /> After</span>
+                                      {bestGrowth.hasImprovement && (
+                                        <span className="flex items-center gap-2 text-emerald-600"><span className="w-3 h-3 rounded-full bg-emerald-500" /> After</span>
+                                      )}
                                     </div>
                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">height cm</p>
                                   </div>
@@ -1166,7 +1192,9 @@ export default function InputPage() {
                                         <YAxis stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={36} tickFormatter={v => v.toFixed(0)} />
                                         <Tooltip cursor={{ stroke: '#cbd5e1', strokeDasharray: '4 4' }} />
                                         <Area type="monotone" dataKey="currentHeight" name="Before Height" stroke="#94a3b8" strokeWidth={2.5} fill="#94a3b8" fillOpacity={0.08} dot={false} />
-                                        <Area type="monotone" dataKey="recommendedHeight" name="After Height" stroke="#16a34a" strokeWidth={2.5} fill="#16a34a" fillOpacity={0.16} dot={false} />
+                                        {bestGrowth.hasImprovement && (
+                                          <Area type="monotone" dataKey="recommendedHeight" name="After Height" stroke="#16a34a" strokeWidth={2.5} fill="#16a34a" fillOpacity={0.16} dot={false} />
+                                        )}
                                       </AreaChart>
                                     </ResponsiveContainer>
                                   </div>
@@ -1176,7 +1204,9 @@ export default function InputPage() {
                                   <div className="flex items-center justify-between mb-3">
                                     <div className="flex items-center gap-4 text-[11px] font-black uppercase tracking-widest">
                                       <span className="flex items-center gap-2 text-slate-500"><span className="w-3 h-3 rounded-full bg-slate-400" /> Before</span>
-                                      <span className="flex items-center gap-2 text-blue-600"><span className="w-3 h-3 rounded-full bg-blue-500" /> After</span>
+                                      {bestGrowth.hasImprovement && (
+                                        <span className="flex items-center gap-2 text-blue-600"><span className="w-3 h-3 rounded-full bg-blue-500" /> After</span>
+                                      )}
                                     </div>
                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">leaves</p>
                                   </div>
@@ -1188,7 +1218,9 @@ export default function InputPage() {
                                         <YAxis stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={36} tickFormatter={v => v.toFixed(0)} />
                                         <Tooltip cursor={{ stroke: '#cbd5e1', strokeDasharray: '4 4' }} />
                                         <Area type="monotone" dataKey="currentLeaves" name="Before Leaves" stroke="#94a3b8" strokeWidth={2.5} fill="#94a3b8" fillOpacity={0.08} dot={false} />
-                                        <Area type="monotone" dataKey="recommendedLeaves" name="After Leaves" stroke="#2563eb" strokeWidth={2.5} fill="#2563eb" fillOpacity={0.16} dot={false} />
+                                        {bestGrowth.hasImprovement && (
+                                          <Area type="monotone" dataKey="recommendedLeaves" name="After Leaves" stroke="#2563eb" strokeWidth={2.5} fill="#2563eb" fillOpacity={0.16} dot={false} />
+                                        )}
                                       </AreaChart>
                                     </ResponsiveContainer>
                                   </div>
