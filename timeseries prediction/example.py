@@ -4,6 +4,7 @@ from predict_growth_model import predict_growth
 result = predict_growth(
     {
         "start_day": 15,
+        "maturity_day": 66,
         "ec": "EC6",
         "light": "high light",
         "environment": {

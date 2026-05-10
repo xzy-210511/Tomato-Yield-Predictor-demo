@@ -10,7 +10,6 @@ import {
   Gauge,
   HelpCircle,
   Leaf,
-  Lightbulb,
   RefreshCw,
   Sun,
   Thermometer,
@@ -20,10 +19,12 @@ import {
   X,
 } from 'lucide-react'
 import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
+  Cell,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -31,6 +32,9 @@ import {
 } from 'recharts'
 import { predictGrowth, predictTimeSeries } from '../api/predict'
 import { createRecord } from '../api/records'
+import { analyzeYieldInput } from '../lib/advisor'
+import { analyzeTimeSeriesInput } from '../lib/timeSeriesAdvisor'
+import AdvisorPanel from '../components/AdvisorPanel'
 
 const FIELD_INFO = {
   avgTemperatureC: 'Average greenhouse temperature (C). Tip: Measure at plant height.',
@@ -154,6 +158,91 @@ function EmptyChartState() {
   )
 }
 
+function GrowthTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="bg-slate-900/95 backdrop-blur-sm text-white rounded-2xl px-4 py-3 shadow-2xl border border-slate-700 min-w-[180px]">
+      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">
+        Day {label} · DAT
+      </p>
+      {payload.map(item => (
+        <div key={item.dataKey} className="flex items-center gap-3 text-xs font-bold py-0.5">
+          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: item.color }} />
+          <span className="text-slate-300 mr-auto">{item.name}</span>
+          <span className="font-black tabular-nums">{Number(item.value).toFixed(2)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function MiniSparkline({ data, dataKey, color, gradientId }) {
+  if (!data || data.length < 2) return <div className="h-6" />
+  return (
+    <div className="h-6 -mx-1">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data} margin={{ top: 1, right: 0, left: 0, bottom: 0 }}>
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity={0.55} />
+              <stop offset="100%" stopColor={color} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <Area
+            type="monotone"
+            dataKey={dataKey}
+            stroke={color}
+            strokeWidth={2}
+            fill={`url(#${gradientId})`}
+            dot={false}
+            isAnimationActive={false}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+function NsActionDot({ cx, cy, payload }) {
+  if (cx == null || cy == null || !payload) return null
+  if (payload.nsAction === 'replace') {
+    return <circle cx={cx} cy={cy} r={6} fill="white" stroke="#dc2626" strokeWidth={2.5} />
+  }
+  if (payload.nsAction === 'add') {
+    return <circle cx={cx} cy={cy} r={5} fill="#f97316" stroke="white" strokeWidth={2} />
+  }
+  return null
+}
+
+function NsBarTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null
+  const p = payload[0].payload
+  const action = p.nsAction
+  const tagClass =
+    action === 'replace' ? 'bg-red-500' : action === 'add' ? 'bg-orange-500' : 'bg-slate-600'
+  const tagText = action ? action.toUpperCase() : 'IDLE'
+  return (
+    <div className="bg-slate-900/95 backdrop-blur-sm text-white rounded-2xl px-4 py-3 shadow-2xl border border-slate-700 max-w-[260px]">
+      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">
+        Day {label} · DAT
+      </p>
+      <div className="flex items-center gap-2 mb-2">
+        <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md ${tagClass} text-white`}>
+          {tagText}
+        </span>
+        <span className="text-base font-black tabular-nums">
+          {p.actionVolume > 0 ? `${p.actionVolume.toFixed(2)} L/plant` : '—'}
+        </span>
+      </div>
+      {p.nsRecommendation && (
+        <p className="text-[11px] font-semibold text-slate-300 leading-relaxed">
+          {p.nsRecommendation}
+        </p>
+      )}
+    </div>
+  )
+}
+
 export default function InputPage() {
   const [form, setForm] = useState(INITIAL_FORM)
   const [timeSeriesForm, setTimeSeriesForm] = useState(INITIAL_TS_FORM)
@@ -185,14 +274,76 @@ export default function InputPage() {
     return { label: 'Balanced', desc: 'Metabolic rates are within a healthy range.', icon: <CheckCircle2 />, color: 'emerald' }
   }, [result, form])
 
+  const advisorSuggestions = useMemo(() => {
+    if (!result) return []
+    return analyzeYieldInput(result.payload, result.response.predicted_yield_kg_per_m2).suggestions
+  }, [result])
+
   const timeSeriesChartData = useMemo(() => {
     if (!timeSeriesResult?.predictions) return []
-    return timeSeriesResult.predictions.map(point => ({
-      day: point.days_after_transplant,
-      plantHeightCm: point.plant_height_cm,
-      numLeaves: point.num_leaves,
-    }))
+    return timeSeriesResult.predictions.map(point => {
+      const nsNew = point.ns_new_per_plant_l ?? 0
+      const nsAdded = point.ns_added_per_plant_l ?? 0
+      const nsAction = point.ns_action
+      // Actionable volume on this day: replace uses fresh L, add uses added L, idle is 0.
+      const actionVolume =
+        nsAction === 'replace' ? nsNew : nsAction === 'add' ? nsAdded : 0
+      return {
+        day: point.days_after_transplant,
+        plantHeightCm: point.plant_height_cm,
+        numLeaves: point.num_leaves,
+        nsNew,
+        nsAdded,
+        nsResidual: point.ns_residual_per_plant_l ?? 0,
+        nsAction,
+        actionVolume,
+        nsRecommendation: point.ns_recommendation,
+        nsPolicy: point.ns_policy,
+        ecLimit: point.ec_limit,
+      }
+    })
   }, [timeSeriesResult])
+
+  const trajectoryStats = useMemo(() => {
+    if (timeSeriesChartData.length < 2) return null
+    const first = timeSeriesChartData[0]
+    const last = timeSeriesChartData[timeSeriesChartData.length - 1]
+    const days = Math.max(1, last.day - first.day)
+    const heightDelta = last.plantHeightCm - first.plantHeightCm
+    const leafDelta = last.numLeaves - first.numLeaves
+    let cumNs = 0
+    const cumulativeNs = timeSeriesChartData.map(p => {
+      cumNs += (p.nsNew || 0) + (p.nsAdded || 0)
+      return { day: p.day, cum: cumNs }
+    })
+    const freshTotal = timeSeriesChartData.reduce((s, p) => s + (p.nsNew || 0), 0)
+    const addedTotal = timeSeriesChartData.reduce((s, p) => s + (p.nsAdded || 0), 0)
+    const actionDays = timeSeriesChartData.filter(
+      p => p.nsAction === 'replace' || p.nsAction === 'add'
+    )
+    return {
+      days,
+      startDay: first.day,
+      endDay: last.day,
+      heightDelta,
+      leafDelta,
+      heightRate: heightDelta / days,
+      leafRate: leafDelta / days,
+      cumulativeNs,
+      freshTotal,
+      addedTotal,
+      actionDays,
+    }
+  }, [timeSeriesChartData])
+
+  const timeSeriesAdvisorSuggestions = useMemo(() => {
+    if (!timeSeriesResult?.predictions) return []
+    return analyzeTimeSeriesInput(
+      timeSeriesForm,
+      timeSeriesResult.predictions,
+      trajectoryStats
+    ).suggestions
+  }, [timeSeriesForm, timeSeriesResult, trajectoryStats])
 
   const timeSeriesSummary = useMemo(() => {
     if (timeSeriesChartData.length < 2) {
@@ -250,6 +401,7 @@ export default function InputPage() {
   const handlePredict = async () => {
     setLoading(true)
     setError('')
+    setResult(null)
     try {
       const payload = Object.fromEntries(
         Object.entries(form).map(([k, v]) => [k, k === 'variety' ? v : parseFloat(v)])
@@ -311,6 +463,13 @@ export default function InputPage() {
 
   const predictedYield = result?.response?.predicted_yield_kg_per_m2
   const finalTimeSeriesPoint = timeSeriesChartData.at(-1)
+  const totalNsSupply = timeSeriesChartData.reduce(
+    (sum, point) => sum + point.nsNew + point.nsAdded,
+    0
+  )
+  const firstNsAction = timeSeriesChartData.find(point =>
+    ['replace', 'add'].includes(point.nsAction)
+  )
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-900 font-sans">
@@ -443,33 +602,7 @@ export default function InputPage() {
                   </div>
                 </div>
 
-                <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-sm">
-                  <h3 className="text-xl font-black mb-10 flex items-center gap-3">
-                    <Lightbulb size={24} className="text-amber-500" /> AI Optimization Advisor
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {[
-                      { ...bottleneck, title: bottleneck.label, text: bottleneck.desc },
-                      { icon: <Droplets />, title: 'Irrigation Sync', text: 'Ensure water cycles match lighting photoperiod.', color: 'blue' },
-                    ].map((tip, i) => (
-                      <div key={i} className={`p-6 rounded-[2.5rem] border transition-all flex gap-5 ${
-                        tip.color === 'blue' ? 'bg-blue-50/40 border-blue-100' :
-                        tip.color === 'orange' ? 'bg-orange-50/40 border-orange-100' :
-                        tip.color === 'red' ? 'bg-red-50/40 border-red-100' : 'bg-emerald-50/40 border-emerald-100'
-                      }`}>
-                        <div className={`shrink-0 w-12 h-12 rounded-2xl flex items-center justify-center text-white ${
-                          tip.color === 'blue' ? 'bg-blue-500' :
-                          tip.color === 'orange' ? 'bg-orange-500' :
-                          tip.color === 'red' ? 'bg-red-500' : 'bg-emerald-500'
-                        }`}>{tip.icon}</div>
-                        <div>
-                          <h4 className="font-black text-slate-900 text-sm mb-1">{tip.title}</h4>
-                          <p className="text-xs text-slate-500 leading-relaxed font-semibold">{tip.text}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                <AdvisorPanel suggestions={advisorSuggestions} />
               </div>
             ) : (
               <div className="h-full min-h-[500px] flex flex-col items-center justify-center text-center bg-white rounded-[3rem] border-2 border-dashed border-slate-100 p-12">
@@ -547,82 +680,339 @@ export default function InputPage() {
 
           <div className="lg:col-span-8">
             <div className="space-y-6">
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                  <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-sm">
-                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Final Plant Height</p>
-                    <div className="flex items-baseline gap-3">
-                      <span className="text-7xl sm:text-8xl font-black text-slate-900 tracking-tighter">
-                      {finalTimeSeriesPoint ? finalTimeSeriesPoint.plantHeightCm.toFixed(2) : '--'}
-                    </span>
-                    <span className="text-xl font-bold text-slate-400 uppercase tracking-tighter">cm</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                  {/* Final Height */}
+                  <div className="bg-white rounded-[2rem] p-6 border border-slate-200 shadow-sm flex flex-col gap-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center">
+                        <Sun size={16} />
+                      </div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Final Height</p>
                     </div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-4xl font-black text-slate-900 tracking-tighter tabular-nums">
+                        {finalTimeSeriesPoint ? finalTimeSeriesPoint.plantHeightCm.toFixed(1) : '--'}
+                      </span>
+                      <span className="text-xs font-black text-slate-400 uppercase tracking-tighter">cm</span>
+                    </div>
+                    {trajectoryStats ? (
+                      <p className="text-[11px] font-bold text-brand-600 tabular-nums">
+                        Δ {trajectoryStats.heightDelta >= 0 ? '+' : ''}{trajectoryStats.heightDelta.toFixed(1)} cm · {trajectoryStats.heightRate >= 0 ? '+' : ''}{trajectoryStats.heightRate.toFixed(2)}/day
+                      </p>
+                    ) : (
+                      <p className="text-[11px] font-bold text-slate-300">— awaiting forecast —</p>
+                    )}
+                    <MiniSparkline data={timeSeriesChartData} dataKey="plantHeightCm" color="#16a34a" gradientId="sparkHeight" />
                   </div>
 
-                  <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-sm">
-                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Final Leaf Count</p>
-                    <div className="flex items-baseline gap-3">
-                      <span className="text-7xl sm:text-8xl font-black text-slate-900 tracking-tighter">
-                        {finalTimeSeriesPoint ? finalTimeSeriesPoint.numLeaves.toFixed(2) : '--'}
-                      </span>
-                      <span className="text-xl font-bold text-slate-400 uppercase tracking-tighter">leaves</span>
+                  {/* Final Leaves */}
+                  <div className="bg-white rounded-[2rem] p-6 border border-slate-200 shadow-sm flex flex-col gap-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                        <Leaf size={16} />
+                      </div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Final Leaves</p>
                     </div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-4xl font-black text-slate-900 tracking-tighter tabular-nums">
+                        {finalTimeSeriesPoint ? finalTimeSeriesPoint.numLeaves.toFixed(1) : '--'}
+                      </span>
+                      <span className="text-xs font-black text-slate-400 uppercase tracking-tighter">leaves</span>
+                    </div>
+                    {trajectoryStats ? (
+                      <p className="text-[11px] font-bold text-blue-600 tabular-nums">
+                        Δ {trajectoryStats.leafDelta >= 0 ? '+' : ''}{trajectoryStats.leafDelta.toFixed(1)} · {trajectoryStats.leafRate >= 0 ? '+' : ''}{trajectoryStats.leafRate.toFixed(2)}/day
+                      </p>
+                    ) : (
+                      <p className="text-[11px] font-bold text-slate-300">— awaiting forecast —</p>
+                    )}
+                    <MiniSparkline data={timeSeriesChartData} dataKey="numLeaves" color="#2563eb" gradientId="sparkLeaves" />
+                  </div>
+
+                  {/* Total NS */}
+                  <div className="bg-white rounded-[2rem] p-6 border border-slate-200 shadow-sm flex flex-col gap-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center">
+                        <Droplets size={16} />
+                      </div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Total NS Supply</p>
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-4xl font-black text-slate-900 tracking-tighter tabular-nums">
+                        {timeSeriesChartData.length ? totalNsSupply.toFixed(2) : '--'}
+                      </span>
+                      <span className="text-xs font-black text-slate-400 uppercase tracking-tighter">L/plant</span>
+                    </div>
+                    {trajectoryStats ? (
+                      <div className="flex flex-wrap gap-1.5 text-[10px] font-black uppercase tracking-widest">
+                        <span className="px-2 py-0.5 rounded-md bg-orange-50 text-orange-600 tabular-nums">Fresh {trajectoryStats.freshTotal.toFixed(1)}L</span>
+                        <span className="px-2 py-0.5 rounded-md bg-cyan-50 text-cyan-600 tabular-nums">Added {trajectoryStats.addedTotal.toFixed(1)}L</span>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] font-bold text-slate-300">— awaiting forecast —</p>
+                    )}
+                    <MiniSparkline data={trajectoryStats?.cumulativeNs} dataKey="cum" color="#06b6d4" gradientId="sparkNs" />
+                  </div>
+
+                  {/* NS Recommendation */}
+                  <div className="bg-slate-900 rounded-[2rem] p-6 text-white shadow-lg flex flex-col gap-3">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                        firstNsAction?.nsAction === 'replace'
+                          ? 'bg-red-500/20 text-red-300'
+                          : firstNsAction?.nsAction === 'add'
+                          ? 'bg-orange-500/20 text-orange-300'
+                          : 'bg-slate-700 text-slate-400'
+                      }`}>
+                        <AlertCircle size={16} />
+                      </div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Next NS Action</p>
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-3xl font-black tracking-tighter tabular-nums">
+                        {firstNsAction ? `Day ${firstNsAction.day}` : 'Idle'}
+                      </span>
+                      {firstNsAction?.nsAction && (
+                        <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md ${
+                          firstNsAction.nsAction === 'replace' ? 'bg-red-500 text-white' : 'bg-orange-500 text-white'
+                        }`}>
+                          {firstNsAction.nsAction}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs font-semibold text-slate-300 leading-relaxed line-clamp-2">
+                      {firstNsAction?.nsRecommendation || 'Run the forecast to generate an NS recommendation.'}
+                    </p>
+                    {/* Event timeline strip */}
+                    {trajectoryStats && trajectoryStats.actionDays.length > 0 && (
+                      <div className="mt-auto pt-2">
+                        <div className="relative h-1 bg-slate-700 rounded-full">
+                          {trajectoryStats.actionDays.map(p => {
+                            const span = Math.max(1, trajectoryStats.endDay - trajectoryStats.startDay)
+                            const pos = ((p.day - trajectoryStats.startDay) / span) * 100
+                            const color = p.nsAction === 'replace' ? 'bg-red-400' : 'bg-orange-400'
+                            return (
+                              <span
+                                key={p.day}
+                                className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2 h-2 rounded-full ${color}`}
+                                style={{ left: `${pos}%` }}
+                                title={`Day ${p.day} · ${p.nsAction}`}
+                              />
+                            )
+                          })}
+                        </div>
+                        <div className="flex justify-between text-[9px] font-black text-slate-500 uppercase tracking-widest mt-1.5 tabular-nums">
+                          <span>D{trajectoryStats.startDay}</span>
+                          <span>{trajectoryStats.actionDays.length} action{trajectoryStats.actionDays.length === 1 ? '' : 's'}</span>
+                          <span>D{trajectoryStats.endDay}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
               <div className="bg-white rounded-[3rem] p-8 border border-slate-200 shadow-sm">
-                <div className="mb-6">
-                  <h3 className="text-xl font-black flex items-center gap-3">
-                    <TrendingUp size={24} className="text-brand-600" /> Growth Trajectory
-                  </h3>
-                  <p className="text-sm text-slate-500 mt-1">The time-series prediction is shown as two separate charts for easier reading.</p>
+                <div className="mb-8 flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <h3 className="text-xl font-black flex items-center gap-3">
+                      <TrendingUp size={24} className="text-brand-600" /> Growth Trajectory
+                    </h3>
+                    {trajectoryStats ? (
+                      <p className="text-xs font-bold text-slate-500 mt-2 tabular-nums">
+                        {trajectoryStats.days} days · D{trajectoryStats.startDay}–D{trajectoryStats.endDay}
+                        <span className="mx-2 text-slate-300">·</span>
+                        <span className="text-brand-600">+{trajectoryStats.heightDelta.toFixed(1)} cm</span>
+                        <span className="mx-2 text-slate-300">·</span>
+                        <span className="text-blue-600">+{trajectoryStats.leafDelta.toFixed(1)} leaves</span>
+                        <span className="mx-2 text-slate-300">·</span>
+                        <span className="text-cyan-600">{(trajectoryStats.freshTotal + trajectoryStats.addedTotal).toFixed(2)} L NS</span>
+                      </p>
+                    ) : (
+                      <p className="text-xs font-bold text-slate-400 mt-2">Run the time-series forecast to populate the curves.</p>
+                    )}
+                  </div>
                 </div>
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                  {timeSeriesChartData.length > 0 ? (
-                    <>
-                      <div className="rounded-[2rem] border border-slate-100 bg-slate-50/50 p-5">
-                        <div className="mb-4">
+
+                {timeSeriesChartData.length > 0 ? (
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+                    {/* Plant Height */}
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-brand-600" />
                           <p className="text-sm font-black text-slate-900">Plant Height</p>
-                          <p className="text-xs text-slate-500">Daily predicted height in centimeters.</p>
                         </div>
-                        <div className="h-[320px]">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={timeSeriesChartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                              <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-                              <XAxis dataKey="day" stroke="#64748b" tickLine={false} axisLine={false} />
-                              <YAxis stroke="#16a34a" tickLine={false} axisLine={false} width={56} />
-                              <Tooltip />
-                              <Legend />
-                              <Line type="monotone" dataKey="plantHeightCm" name="Plant Height (cm)" stroke="#16a34a" strokeWidth={3} dot={false} />
-                            </LineChart>
-                          </ResponsiveContainer>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">cm</p>
+                      </div>
+                      <div className="h-[280px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={timeSeriesChartData} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+                            <defs>
+                              <linearGradient id="heightFill" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="#16a34a" stopOpacity={0.45} />
+                                <stop offset="100%" stopColor="#16a34a" stopOpacity={0} />
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid stroke="#f1f5f9" vertical={false} />
+                            <XAxis dataKey="day" stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} tickFormatter={d => `D${d}`} />
+                            <YAxis stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={36} tickFormatter={v => v.toFixed(0)} />
+                            <Tooltip content={<GrowthTooltip />} cursor={{ stroke: '#cbd5e1', strokeDasharray: '4 4' }} />
+                            <Area
+                              type="monotone"
+                              dataKey="plantHeightCm"
+                              name="Plant Height (cm)"
+                              stroke="#16a34a"
+                              strokeWidth={2.5}
+                              fill="url(#heightFill)"
+                              dot={false}
+                              activeDot={{ r: 5, fill: '#16a34a', stroke: 'white', strokeWidth: 3 }}
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    {/* Leaf Count */}
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-blue-600" />
+                          <p className="text-sm font-black text-slate-900">Leaf Count</p>
                         </div>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">leaves</p>
+                      </div>
+                      <div className="h-[280px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={timeSeriesChartData} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+                            <defs>
+                              <linearGradient id="leafFill" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="#2563eb" stopOpacity={0.45} />
+                                <stop offset="100%" stopColor="#2563eb" stopOpacity={0} />
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid stroke="#f1f5f9" vertical={false} />
+                            <XAxis dataKey="day" stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} tickFormatter={d => `D${d}`} />
+                            <YAxis stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={36} tickFormatter={v => v.toFixed(0)} />
+                            <Tooltip content={<GrowthTooltip />} cursor={{ stroke: '#cbd5e1', strokeDasharray: '4 4' }} />
+                            <Area
+                              type="monotone"
+                              dataKey="numLeaves"
+                              name="Leaf Count"
+                              stroke="#2563eb"
+                              strokeWidth={2.5}
+                              fill="url(#leafFill)"
+                              dot={false}
+                              activeDot={{ r: 5, fill: '#2563eb', stroke: 'white', strokeWidth: 3 }}
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    {/* NS daily action bars */}
+                    <div className="xl:col-span-2">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-orange-500" />
+                          <p className="text-sm font-black text-slate-900">Nutrient Solution Schedule</p>
+                        </div>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                          L per plant · {trajectoryStats?.actionDays.length ?? 0} action{trajectoryStats?.actionDays.length === 1 ? '' : 's'}
+                        </p>
+                      </div>
+                      <div className="h-[260px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={timeSeriesChartData} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+                            <CartesianGrid stroke="#f1f5f9" vertical={false} />
+                            <XAxis dataKey="day" stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} tickFormatter={d => `D${d}`} />
+                            <YAxis stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={40} tickFormatter={v => `${v.toFixed(1)}L`} />
+                            <Tooltip content={<NsBarTooltip />} cursor={{ fill: '#f1f5f9' }} />
+                            <Bar dataKey="actionVolume" name="Action Volume (L)" radius={[4, 4, 0, 0]} maxBarSize={28}>
+                              {timeSeriesChartData.map((entry, idx) => (
+                                <Cell
+                                  key={idx}
+                                  fill={
+                                    entry.nsAction === 'replace' ? '#dc2626' :
+                                    entry.nsAction === 'add' ? '#f97316' :
+                                    '#e2e8f0'
+                                  }
+                                />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                      {/* Legend */}
+                      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-4 text-[11px] font-black uppercase tracking-widest text-slate-500">
+                        <span className="flex items-center gap-2">
+                          <span className="w-3 h-3 rounded-sm bg-orange-500" /> Add
+                        </span>
+                        <span className="flex items-center gap-2">
+                          <span className="w-3 h-3 rounded-sm bg-red-600" /> Replace
+                        </span>
+                        <span className="flex items-center gap-2">
+                          <span className="w-3 h-3 rounded-sm bg-slate-200" /> Idle
+                        </span>
                       </div>
 
-                      <div className="rounded-[2rem] border border-slate-100 bg-slate-50/50 p-5">
-                        <div className="mb-4">
-                          <p className="text-sm font-black text-slate-900">Leaf Count</p>
-                          <p className="text-xs text-slate-500">Daily predicted number of leaves.</p>
+                      {/* Schedule table — actionable list of upcoming events */}
+                      {trajectoryStats && trajectoryStats.actionDays.length > 0 && (
+                        <div className="mt-6 rounded-[2rem] bg-slate-50 border border-slate-100 p-5">
+                          <div className="flex items-center justify-between mb-4">
+                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Upcoming Actions</p>
+                            {trajectoryStats.actionDays.length > 5 && (
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                showing 5 of {trajectoryStats.actionDays.length}
+                              </p>
+                            )}
+                          </div>
+                          <div className="space-y-2">
+                            {trajectoryStats.actionDays.slice(0, 5).map(p => {
+                              const isReplace = p.nsAction === 'replace'
+                              return (
+                                <div
+                                  key={p.day}
+                                  className="flex items-center gap-4 bg-white rounded-2xl px-4 py-3 border border-slate-100 hover:border-slate-200 transition-colors"
+                                >
+                                  <div className="text-center shrink-0 w-14">
+                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Day</p>
+                                    <p className="text-2xl font-black text-slate-900 leading-none tabular-nums">{p.day}</p>
+                                  </div>
+                                  <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md shrink-0 text-white ${isReplace ? 'bg-red-600' : 'bg-orange-500'}`}>
+                                    {p.nsAction}
+                                  </span>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-bold text-slate-700 truncate">
+                                      {p.nsRecommendation || (isReplace ? 'Replace nutrient solution' : `Add ${p.actionVolume.toFixed(2)}L nutrient solution`)}
+                                    </p>
+                                    {p.nsPolicy && (
+                                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">
+                                        {p.nsPolicy} policy · EC {p.ecLimit}
+                                      </p>
+                                    )}
+                                  </div>
+                                  <p className="text-sm font-black text-slate-900 tabular-nums shrink-0">
+                                    {p.actionVolume.toFixed(2)} <span className="text-[10px] text-slate-400 font-bold">L</span>
+                                  </p>
+                                </div>
+                              )
+                            })}
+                          </div>
                         </div>
-                        <div className="h-[320px]">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={timeSeriesChartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                              <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-                              <XAxis dataKey="day" stroke="#64748b" tickLine={false} axisLine={false} />
-                              <YAxis stroke="#2563eb" tickLine={false} axisLine={false} width={56} />
-                              <Tooltip />
-                              <Legend />
-                              <Line type="monotone" dataKey="numLeaves" name="Leaf Count" stroke="#2563eb" strokeWidth={3} dot={false} />
-                            </LineChart>
-                          </ResponsiveContainer>
+                      )}
+
+                      {timeSeriesResult && (
+                        <div className="mt-8">
+                          <AdvisorPanel suggestions={timeSeriesAdvisorSuggestions} />
                         </div>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="xl:col-span-2 h-[420px] flex flex-col items-center justify-center border-2 border-dashed border-slate-100 rounded-[2rem] text-slate-400 bg-slate-50/50">
-                      <EmptyChartState />
+                      )}
                     </div>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <div className="h-[420px] flex flex-col items-center justify-center border-2 border-dashed border-slate-100 rounded-[2rem] text-slate-400 bg-slate-50/50">
+                    <EmptyChartState />
+                  </div>
+                )}
               </div>
             </div>
           </div>

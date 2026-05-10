@@ -100,6 +100,27 @@ public class TimeSeriesPredictionResponse {
         @JsonProperty("num_leaves")
         private Double numLeaves;
 
+        @JsonProperty("ns_policy")
+        private String nsPolicy;
+
+        @JsonProperty("ec_limit")
+        private Double ecLimit;
+
+        @JsonProperty("ns_new_per_plant_l")
+        private Double nsNewPerPlantL;
+
+        @JsonProperty("ns_added_per_plant_l")
+        private Double nsAddedPerPlantL;
+
+        @JsonProperty("ns_residual_per_plant_l")
+        private Double nsResidualPerPlantL;
+
+        @JsonProperty("ns_action")
+        private String nsAction;
+
+        @JsonProperty("ns_recommendation")
+        private String nsRecommendation;
+
         private String source;
 
         public Integer getDaysAfterTransplant() {
@@ -124,6 +145,62 @@ public class TimeSeriesPredictionResponse {
 
         public void setNumLeaves(final Double numLeaves) {
             this.numLeaves = numLeaves;
+        }
+
+        public String getNsPolicy() {
+            return nsPolicy;
+        }
+
+        public void setNsPolicy(final String nsPolicy) {
+            this.nsPolicy = nsPolicy;
+        }
+
+        public Double getEcLimit() {
+            return ecLimit;
+        }
+
+        public void setEcLimit(final Double ecLimit) {
+            this.ecLimit = ecLimit;
+        }
+
+        public Double getNsNewPerPlantL() {
+            return nsNewPerPlantL;
+        }
+
+        public void setNsNewPerPlantL(final Double nsNewPerPlantL) {
+            this.nsNewPerPlantL = nsNewPerPlantL;
+        }
+
+        public Double getNsAddedPerPlantL() {
+            return nsAddedPerPlantL;
+        }
+
+        public void setNsAddedPerPlantL(final Double nsAddedPerPlantL) {
+            this.nsAddedPerPlantL = nsAddedPerPlantL;
+        }
+
+        public Double getNsResidualPerPlantL() {
+            return nsResidualPerPlantL;
+        }
+
+        public void setNsResidualPerPlantL(final Double nsResidualPerPlantL) {
+            this.nsResidualPerPlantL = nsResidualPerPlantL;
+        }
+
+        public String getNsAction() {
+            return nsAction;
+        }
+
+        public void setNsAction(final String nsAction) {
+            this.nsAction = nsAction;
+        }
+
+        public String getNsRecommendation() {
+            return nsRecommendation;
+        }
+
+        public void setNsRecommendation(final String nsRecommendation) {
+            this.nsRecommendation = nsRecommendation;
         }
 
         public String getSource() {

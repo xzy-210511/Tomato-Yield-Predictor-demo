@@ -12,6 +12,13 @@ $timeSeriesModelDir = Join-Path $timeSeriesDir 'model_outputs'
 $timeSeriesCleaningScript = Join-Path $timeSeriesDir 'datacleaning.py'
 $timeSeriesTrainingScript = Join-Path $timeSeriesDir 'timeseries_train.py'
 $timeSeriesModelFile = Join-Path $timeSeriesModelDir 'recursive_growth_forecaster.joblib'
+$timeSeriesMappedNsFile = Join-Path $timeSeriesCleanedDir 'mapped_ns_training_table.csv'
+$timeSeriesCleanedFiles = @(
+    (Join-Path $timeSeriesCleanedDir 'climate_timeseries_clean.csv'),
+    (Join-Path $timeSeriesCleanedDir 'crop_measurements_clean.csv'),
+    (Join-Path $timeSeriesCleanedDir 'destructive_harvest_clean.csv'),
+    $timeSeriesMappedNsFile
+)
 $pythonExe = Join-Path $pythonServiceDir '.venv\Scripts\python.exe'
 $pythonVenvDir = Join-Path $pythonServiceDir '.venv'
 $pythonRequirements = Join-Path $pythonServiceDir 'requirements.txt'
@@ -104,8 +111,36 @@ if (-not (Test-Path $timeSeriesTrainingScript)) {
     Write-Error "Time-series training script not found at $timeSeriesTrainingScript"
 }
 
-$needsTimeSeriesCleaning = -not (Test-Path $timeSeriesCleanedDir)
-$needsTimeSeriesTraining = -not (Test-Path $timeSeriesModelFile)
+$timeSeriesSourceFiles = @(
+    $timeSeriesCleaningScript,
+    $timeSeriesTrainingScript,
+    (Join-Path $timeSeriesDir 'ClimateTimeseries.xlsx'),
+    (Join-Path $timeSeriesDir 'CropMeasurements.xlsx'),
+    (Join-Path $timeSeriesDir 'DestructiveHarvest.xlsx'),
+    (Join-Path $timeSeriesDir 'nsdataset.xlsx')
+) | Where-Object { Test-Path $_ }
+
+$latestTimeSeriesSource = ($timeSeriesSourceFiles | ForEach-Object {
+    (Get-Item $_).LastWriteTimeUtc
+} | Sort-Object -Descending | Select-Object -First 1)
+
+$missingTimeSeriesCleanedFiles = $timeSeriesCleanedFiles | Where-Object { -not (Test-Path $_) }
+$oldestTimeSeriesCleaned = ($timeSeriesCleanedFiles | Where-Object { Test-Path $_ } | ForEach-Object {
+    (Get-Item $_).LastWriteTimeUtc
+} | Sort-Object | Select-Object -First 1)
+
+$needsTimeSeriesCleaning = $missingTimeSeriesCleanedFiles.Count -gt 0 `
+    -or (
+        $latestTimeSeriesSource `
+        -and $oldestTimeSeriesCleaned `
+        -and ($oldestTimeSeriesCleaned -lt $latestTimeSeriesSource)
+    )
+$needsTimeSeriesTraining = -not (Test-Path $timeSeriesModelFile) `
+    -or (
+        $latestTimeSeriesSource `
+        -and (Test-Path $timeSeriesModelFile) `
+        -and ((Get-Item $timeSeriesModelFile).LastWriteTimeUtc -lt $latestTimeSeriesSource)
+    )
 
 if ($needsTimeSeriesCleaning) {
     Write-Host 'Preparing time-series cleaned data ...'
