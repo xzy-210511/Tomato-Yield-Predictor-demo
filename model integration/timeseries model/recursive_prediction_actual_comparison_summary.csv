@@ -1,0 +1,9 @@
+﻿treatment,ec,light,start_day,end_day,height_mae_cm,leaves_mae,height_points,leaves_points
+Cherry_EC3_HighLight,EC3,high light,2,58,0.5736666666666667,0.9968333333333333,9,6
+Cherry_EC3_LowLight,EC3,low light,2,58,0.5685555555555556,0.295,9,6
+Cherry_EC3_MedLight,EC3,med light,2,58,0.5508888888888889,0.425,9,6
+Cherry_EC3_NoLight,EC3,no light,2,58,0.6836666666666668,0.6026666666666666,9,6
+Cherry_EC6_HighLight,EC6,high light,2,58,0.6255555555555555,0.6131666666666667,9,6
+Cherry_EC6_LowLight,EC6,low light,2,58,0.8056666666666668,0.17166666666666663,9,6
+Cherry_EC6_MedLight,EC6,med light,2,58,1.2443333333333333,0.5275,9,6
+Cherry_EC6_NoLight,EC6,no light,2,58,0.5466666666666666,0.20116666666666663,9,6
