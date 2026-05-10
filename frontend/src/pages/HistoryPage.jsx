@@ -30,30 +30,67 @@ import {
 } from 'recharts';
 import { deleteRecord, listRecords, renameRecord } from '../api/records';
 
+function buildTimeSeriesData(output = {}) {
+  let cumulativeNs = 0;
+  return (output.predictions || []).map(point => {
+    const nsNew = point.ns_new_per_plant_l ?? 0;
+    const nsAdded = point.ns_added_per_plant_l ?? 0;
+    const dailyNs = nsNew + nsAdded;
+    cumulativeNs += dailyNs;
+
+    return {
+      day: point.days_after_transplant,
+      plantHeightCm: point.plant_height_cm,
+      numLeaves: point.num_leaves,
+      dailyNs,
+      cumulativeNs,
+    };
+  });
+}
+
 function normalizeRecord(record) {
+  const input = record.input || {};
+  const rawOutput = record.output || {};
+  const savedRecordType = record.recordType;
+  const isTimeSeries = savedRecordType === 'timeseries';
+  const seriesData = isTimeSeries ? buildTimeSeriesData(rawOutput) : [];
+  const lastPoint = seriesData.at(-1) || {};
+  const summary = rawOutput.summary || {};
+
   return {
     id: record.id,
     name: record.recordName,
     time: record.createdAt,
-    input: record.input || {},
+    input,
     output: record.summaryValue,
-    rawOutput: record.output,
-    savedRecordType: record.recordType,
+    rawOutput,
+    savedRecordType,
+    finalPlantHeight: summary.finalPlantHeight ?? lastPoint.plantHeightCm,
+    finalLeafCount: summary.finalLeafCount ?? lastPoint.numLeaves,
+    totalNsSupply: summary.totalNsSupply ?? lastPoint.cumulativeNs,
+    totalFreshNs: summary.totalFreshNs,
+    totalAddedNs: summary.totalAddedNs,
+    seriesData,
   };
 }
 
-function getRecordType(input = {}) {
+function isTimeSeriesRecord(record = {}) {
+  return record.savedRecordType === 'timeseries' || !!record.input?.ec || !!record.input?.light;
+}
+
+function getRecordType(input = {}, record = {}) {
+  if (isTimeSeriesRecord(record)) return 'Time-Series';
   if (input.variety) return input.variety;
-  if (input.ec || input.light) return [input.ec, input.light].filter(Boolean).join(' / ');
   return 'Record';
 }
 
-function getRecordUnit(input = {}) {
-  return input.variety ? 'kg/m2' : 'cm';
+function getRecordUnit(input = {}, record = {}) {
+  if (isTimeSeriesRecord(record)) return 'cm';
+  return input.variety ? 'kg/m2' : '';
 }
 
-function getRecordOutputLabel(input = {}) {
-  return input.variety ? 'Final Yield' : 'Final Plant Height';
+function getRecordOutputLabel(input = {}, record = {}) {
+  return isTimeSeriesRecord(record) ? 'Final Plant Height' : 'Final Yield';
 }
 
 function DetailItem({ label, value }) {
@@ -141,7 +178,7 @@ export default function HistoryPage() {
 
   const processedData = useMemo(() => {
     return historyData
-      .map((item, index) => ({ ...item, originalIndex: index, recordType: getRecordType(item.input) }))
+      .map((item, index) => ({ ...item, originalIndex: index, recordType: getRecordType(item.input, item) }))
       .filter(item => {
         const matchesSearch =
           (item.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -168,7 +205,7 @@ export default function HistoryPage() {
   }, [selectedIndices, historyData]);
 
   const filterOptions = useMemo(() => {
-    return ['All', ...new Set(historyData.map(item => getRecordType(item.input)).filter(Boolean))];
+    return ['All', ...new Set(historyData.map(item => getRecordType(item.input, item)).filter(Boolean))];
   }, [historyData]);
 
   return (
@@ -336,7 +373,7 @@ export default function HistoryPage() {
                             {typeof item.output === 'number' ? item.output.toFixed(2) : '--'}
                           </span>
                           <span className="text-[10px] text-slate-400 ml-1.5 font-black uppercase tracking-tighter">
-                            {getRecordUnit(item.input)}
+                            {getRecordUnit(item.input, item)}
                           </span>
                         </td>
                         <td className="p-6 text-right">
@@ -387,7 +424,7 @@ export default function HistoryPage() {
                                   <Wind size={14} className="text-blue-500" /> Treatment
                                 </div>
                                 <div className="space-y-2">
-                                  <DetailItem label="Type" value={getRecordType(item.input)} />
+                                  <DetailItem label="Type" value={getRecordType(item.input, item)} />
                                   <DetailItem label="EC / Variety" value={item.input?.variety ?? item.input?.ec ?? '-'} />
                                   <DetailItem label="Pest / Light" value={item.input?.pestSeverity ?? item.input?.light ?? '-'} />
                                   <DetailItem label="Soil pH" value={item.input?.pH ?? '-'} />
@@ -400,10 +437,10 @@ export default function HistoryPage() {
                                 </div>
                                 <div>
                                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">
-                                    {getRecordOutputLabel(item.input)}
+                                    {getRecordOutputLabel(item.input, item)}
                                   </p>
                                   <p className="text-2xl font-black text-slate-900">
-                                    {typeof item.output === 'number' ? item.output.toFixed(2) : '--'} <span className="text-xs">{getRecordUnit(item.input)}</span>
+                                    {typeof item.output === 'number' ? item.output.toFixed(2) : '--'} <span className="text-xs">{getRecordUnit(item.input, item)}</span>
                                   </p>
                                   <p className="text-[10px] text-brand-500 font-bold mt-1">Validated Model</p>
                                 </div>
