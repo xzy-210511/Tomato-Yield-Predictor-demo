@@ -243,6 +243,28 @@ function NsBarTooltip({ active, payload, label }) {
   )
 }
 
+function summarizeTimeSeriesResponse(response) {
+  const predictions = Array.isArray(response?.predictions) ? response.predictions : []
+  const finalPrediction = predictions.at(-1) || {}
+  const totals = predictions.reduce(
+    (acc, point) => {
+      acc.totalNsSupply += (point.ns_new_per_plant_l ?? 0) + (point.ns_added_per_plant_l ?? 0)
+      acc.totalFreshNs += point.ns_new_per_plant_l ?? 0
+      acc.totalAddedNs += point.ns_added_per_plant_l ?? 0
+      return acc
+    },
+    { totalNsSupply: 0, totalFreshNs: 0, totalAddedNs: 0 }
+  )
+
+  return {
+    finalPlantHeight: finalPrediction.plant_height_cm,
+    finalLeafCount: finalPrediction.num_leaves,
+    totalNsSupply: totals.totalNsSupply,
+    totalFreshNs: totals.totalFreshNs,
+    totalAddedNs: totals.totalAddedNs,
+  }
+}
+
 export default function InputPage() {
   const [form, setForm] = useState(INITIAL_FORM)
   const [timeSeriesForm, setTimeSeriesForm] = useState(INITIAL_TS_FORM)
@@ -447,12 +469,12 @@ export default function InputPage() {
         throw new Error('Invalid time-series response format.')
       }
       setTimeSeriesResult(response)
-      const finalPrediction = response.predictions.at(-1)
+      const summary = summarizeTimeSeriesResponse(response)
       await saveRecord({
         recordType: 'timeseries',
         input: payload,
-        output: response,
-        summaryValue: finalPrediction?.plant_height_cm,
+        output: { ...response, summary },
+        summaryValue: summary.finalPlantHeight,
       })
     } catch (e) {
       setError(e.message || 'Time-series forecast failed.')
