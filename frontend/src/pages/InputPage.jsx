@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import TomatoCanvas from '../components/TomatoCanvas.jsx'
 import {
   Activity,
   AlertCircle,
@@ -31,7 +32,17 @@ import {
   YAxis,
 } from 'recharts'
 import { predictGrowth, predictTimeSeries } from '../api/predict'
+import { createRecord } from '../api/records'
 import { analyzeYieldInput } from '../lib/advisor'
+import { analyzeTimeSeriesInput } from '../lib/timeSeriesAdvisor'
+import {
+  buildTimeSeriesCandidates,
+  buildTimeSeriesComparison,
+  buildTimeSeriesPayload,
+  buildYieldCandidates,
+  mapTimeSeriesPredictions,
+  summarizeTrajectory,
+} from '../lib/findbest'
 import AdvisorPanel from '../components/AdvisorPanel'
 
 const FIELD_INFO = {
@@ -241,16 +252,44 @@ function NsBarTooltip({ active, payload, label }) {
   )
 }
 
+function summarizeTimeSeriesResponse(response) {
+  const predictions = Array.isArray(response?.predictions) ? response.predictions : []
+  const finalPrediction = predictions.at(-1) || {}
+  const totals = predictions.reduce(
+    (acc, point) => {
+      acc.totalNsSupply += (point.ns_new_per_plant_l ?? 0) + (point.ns_added_per_plant_l ?? 0)
+      acc.totalFreshNs += point.ns_new_per_plant_l ?? 0
+      acc.totalAddedNs += point.ns_added_per_plant_l ?? 0
+      return acc
+    },
+    { totalNsSupply: 0, totalFreshNs: 0, totalAddedNs: 0 }
+  )
+
+  return {
+    finalPlantHeight: finalPrediction.plant_height_cm,
+    finalLeafCount: finalPrediction.num_leaves,
+    totalNsSupply: totals.totalNsSupply,
+    totalFreshNs: totals.totalFreshNs,
+    totalAddedNs: totals.totalAddedNs,
+  }
+}
+
 export default function InputPage() {
   const [form, setForm] = useState(INITIAL_FORM)
   const [timeSeriesForm, setTimeSeriesForm] = useState(INITIAL_TS_FORM)
   const [loading, setLoading] = useState(false)
   const [timeSeriesLoading, setTimeSeriesLoading] = useState(false)
+  const [bestYieldLoading, setBestYieldLoading] = useState(false)
+  const [bestGrowthLoading, setBestGrowthLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
   const [timeSeriesResult, setTimeSeriesResult] = useState(null)
+  const [bestYield, setBestYield] = useState(null)
+  const [bestGrowth, setBestGrowth] = useState(null)
+  const [viewMode, setViewMode] = useState('default')
   const navigate = useNavigate()
   const user = localStorage.getItem('user')
+  const userId = localStorage.getItem('userId')
 
   const updateField = (key, value) => setForm(prev => ({ ...prev, [key]: value }))
   const updateTimeSeriesField = (key, value) =>
@@ -333,6 +372,15 @@ export default function InputPage() {
     }
   }, [timeSeriesChartData])
 
+  const timeSeriesAdvisorSuggestions = useMemo(() => {
+    if (!timeSeriesResult?.predictions) return []
+    return analyzeTimeSeriesInput(
+      timeSeriesForm,
+      timeSeriesResult.predictions,
+      trajectoryStats
+    ).suggestions
+  }, [timeSeriesForm, timeSeriesResult, trajectoryStats])
+
   const timeSeriesSummary = useMemo(() => {
     if (timeSeriesChartData.length < 2) {
       return {
@@ -370,9 +418,27 @@ export default function InputPage() {
     }
   }, [timeSeriesChartData, timeSeriesForm.co2Mean])
 
+  const saveRecord = async ({ recordType, input, output, summaryValue }) => {
+    if (!userId) return
+
+    try {
+      await createRecord({
+        userId: parseInt(userId, 10),
+        recordType,
+        input,
+        output,
+        summaryValue,
+      })
+    } catch (e) {
+      setError(e.message ? `Prediction completed, but history was not saved: ${e.message}` : 'Prediction completed, but history was not saved.')
+    }
+  }
+
   const handlePredict = async () => {
     setLoading(true)
     setError('')
+    setResult(null)
+    setBestYield(null)
     try {
       const payload = Object.fromEntries(
         Object.entries(form).map(([k, v]) => [k, k === 'variety' ? v : parseFloat(v)])
@@ -380,11 +446,13 @@ export default function InputPage() {
       const response = await predictGrowth(payload)
       if (response && response.predicted_yield_kg_per_m2 !== undefined) {
         setResult({ response, payload })
-        const history = JSON.parse(localStorage.getItem('history') || '[]')
-        localStorage.setItem('history', JSON.stringify([
-          { time: new Date().toISOString(), input: payload, output: response.predicted_yield_kg_per_m2 },
-          ...history,
-        ]))
+        await saveRecord({
+          recordType: 'yield',
+          input: payload,
+          output: response,
+          summaryValue: response.predicted_yield_kg_per_m2,
+        })
+        handleFindBestYield(payload, response)
       } else {
         throw new Error('Invalid response format.')
       }
@@ -398,29 +466,158 @@ export default function InputPage() {
   const handleTimeSeriesPredict = async () => {
     setTimeSeriesLoading(true)
     setError('')
+    setBestGrowth(null)
     try {
-      const payload = {
-        startDay: parseInt(timeSeriesForm.startDay, 10),
-        maturityDay: parseInt(timeSeriesForm.maturityDay, 10),
-        ec: timeSeriesForm.ec,
-        light: timeSeriesForm.light,
-        environment: {
-          tAirMean: parseFloat(timeSeriesForm.tAirMean),
-          rhMean: parseFloat(timeSeriesForm.rhMean),
-          co2Mean: parseFloat(timeSeriesForm.co2Mean),
-          parLampDaily: parseFloat(timeSeriesForm.parLampDaily),
-          lightOnHoursDaily: parseFloat(timeSeriesForm.lightOnHoursDaily),
-        },
-      }
+      const payload = buildTimeSeriesPayload(timeSeriesForm)
       const response = await predictTimeSeries(payload)
       if (!response || !Array.isArray(response.predictions)) {
         throw new Error('Invalid time-series response format.')
       }
       setTimeSeriesResult(response)
+      const summary = summarizeTimeSeriesResponse(response)
+      await saveRecord({
+        recordType: 'timeseries',
+        input: payload,
+        output: { ...response, summary },
+        summaryValue: summary.finalPlantHeight,
+      })
+      handleFindBestGrowth(timeSeriesForm, response)
     } catch (e) {
       setError(e.message || 'Time-series forecast failed.')
     } finally {
       setTimeSeriesLoading(false)
+    }
+  }
+
+  const handleFindBestYield = async (basePayload, baseResponse) => {
+    const sourcePayload = basePayload || result?.payload
+    const sourceResponse = baseResponse || result?.response
+    if (!sourcePayload || !sourceResponse) return
+    setBestYieldLoading(true)
+    setError('')
+    setBestYield(null)
+    try {
+      const currentYield = sourceResponse.predicted_yield_kg_per_m2
+      const candidates = buildYieldCandidates(sourcePayload)
+      let best = {
+        label: 'Current input',
+        payload: sourcePayload,
+        changes: ['No better tested combination found.'],
+        predictedYield: currentYield,
+      }
+
+      for (let i = 0; i < candidates.length; i += 1) {
+        const candidate = candidates[i]
+        let response = null
+        try {
+          response = await predictGrowth(candidate.payload)
+        } catch {
+          continue
+        }
+        if (response && response.predicted_yield_kg_per_m2 > best.predictedYield) {
+          best = {
+            label: candidate.label,
+            payload: candidate.payload,
+            changes: candidate.changes,
+            predictedYield: response.predicted_yield_kg_per_m2,
+          }
+        }
+      }
+
+      setBestYield({
+        testedCount: candidates.length,
+        currentYield,
+        best,
+        improvement: best.predictedYield - currentYield,
+      })
+    } catch (e) {
+      setError(e.message || 'Best yield search failed.')
+    } finally {
+      setBestYieldLoading(false)
+    }
+  }
+
+  const scoreGrowthCurve = (currentPoints, candidatePoints) => {
+    let heightScore = 0
+    let leafScore = 0
+    let matchedCount = 0
+
+    for (let i = 0; i < currentPoints.length; i += 1) {
+      const currentPoint = currentPoints[i]
+      let candidatePoint = null
+
+      for (let j = 0; j < candidatePoints.length; j += 1) {
+        if (candidatePoints[j].day === currentPoint.day) {
+          candidatePoint = candidatePoints[j]
+          break
+        }
+      }
+
+      if (!candidatePoint) continue
+
+      heightScore += (candidatePoint.plantHeightCm - currentPoint.plantHeightCm) / Math.max(currentPoint.plantHeightCm, 1)
+      leafScore += (candidatePoint.numLeaves - currentPoint.numLeaves) / Math.max(currentPoint.numLeaves, 1)
+      matchedCount += 1
+    }
+
+    if (matchedCount === 0) return 0
+    return (heightScore + leafScore) / matchedCount
+  }
+
+  const handleFindBestGrowth = async (baseForm, baseResponse) => {
+    const sourceForm = baseForm || timeSeriesForm
+    const sourceResponse = baseResponse || timeSeriesResult
+    if (!sourceResponse?.predictions) return
+    setBestGrowthLoading(true)
+    setError('')
+    setBestGrowth(null)
+    try {
+      const currentPoints = mapTimeSeriesPredictions(sourceResponse.predictions)
+      const currentSummary = summarizeTrajectory(currentPoints)
+      const candidates = buildTimeSeriesCandidates(sourceForm)
+      let best = {
+        label: 'Current input',
+        payload: buildTimeSeriesPayload(sourceForm),
+        changes: ['No better tested combination found.'],
+        points: currentPoints,
+        summary: currentSummary,
+      }
+      let bestScore = 0
+
+      for (let i = 0; i < candidates.length; i += 1) {
+        const candidate = candidates[i]
+        const response = await predictTimeSeries(candidate.payload)
+        if (!response || !Array.isArray(response.predictions)) continue
+
+        const points = mapTimeSeriesPredictions(response.predictions)
+        const summary = summarizeTrajectory(points)
+        if (!summary || !currentSummary) continue
+
+        const candidateScore = scoreGrowthCurve(currentPoints, points)
+
+        if (candidateScore > bestScore) {
+          bestScore = candidateScore
+          best = {
+            label: candidate.label,
+            payload: candidate.payload,
+            changes: candidate.changes,
+            points,
+            summary,
+          }
+        }
+      }
+
+      setBestGrowth({
+        testedCount: candidates.length,
+        currentSummary,
+        best,
+        hasImprovement: bestScore > 0,
+        comparisonData: buildTimeSeriesComparison(currentPoints, best.points),
+      })
+    } catch (e) {
+      setError(e.message || 'Best growth search failed.')
+    } finally {
+      setBestGrowthLoading(false)
     }
   }
 
@@ -455,7 +652,7 @@ export default function InputPage() {
                 <span className="text-xs font-black text-slate-700 flex items-center gap-2">
                   <User size={14} /> {user}
                 </span>
-                <button onClick={() => { localStorage.removeItem('user'); window.location.reload() }} className="text-xs font-bold text-red-500 hover:text-red-600">
+                <button onClick={() => { localStorage.removeItem('user'); localStorage.removeItem('userId'); window.location.reload() }} className="text-xs font-bold text-red-500 hover:text-red-600">
                   Logout
                 </button>
               </div>
@@ -523,19 +720,54 @@ export default function InputPage() {
           </div>
 
           <div className="lg:col-span-7 xl:col-span-8">
-            {result ? (
-              <div className="animate-in fade-in slide-in-from-right-8 duration-500 space-y-8">
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                  <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-sm relative overflow-hidden group">
-                    <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform duration-700 text-brand-600"><Activity size={200} /></div>
-                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Estimated Yield</p>
-                    <div className="flex items-baseline gap-3">
-                      <span className="text-7xl sm:text-8xl font-black text-slate-900 tracking-tighter">{predictedYield.toFixed(2)}</span>
-                      <span className="text-xl font-bold text-slate-400 uppercase tracking-tighter">kg/m2</span>
-                    </div>
-                  </div>
 
-                  <div className="bg-slate-900 rounded-[3rem] p-10 text-white shadow-2xl flex flex-col justify-between relative overflow-hidden">
+            {/* Main Panel */}
+            <div className="bg-white rounded-[3rem] border border-slate-200 shadow-sm p-6 min-h-[600px]">
+                          {/* 🔘 Mode Switch */}
+            <div className="flex justify-center mb-6">
+              <div className="flex p-1 bg-slate-100 rounded-2xl">
+                <button
+                  onClick={() => setViewMode('default')}
+                  className={`px-5 py-2 text-xs font-black rounded-xl transition-all ${
+                    viewMode === 'default'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-400'
+                  }`}
+                >
+                  Data
+                </button>
+
+                <button
+                  onClick={() => setViewMode('3d')}
+                  className={`px-5 py-2 text-xs font-black rounded-xl transition-all ${
+                    viewMode === '3d'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-400'
+                  }`}
+                >
+                  3D
+                </button>
+              </div>
+            </div>
+
+              {viewMode === '3d' ? (
+                <div className="h-[520px] rounded-2xl overflow-hidden bg-slate-50 flex items-center justify-center">
+                  <TomatoCanvas metrics={form} />
+                </div>
+
+              ) : result ? (
+                <div className="animate-in fade-in slide-in-from-right-8 duration-500 space-y-8">
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                    <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-sm relative overflow-hidden group">
+                      <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform duration-700 text-brand-600"><Activity size={200} /></div>
+                      <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Estimated Yield</p>
+                      <div className="flex items-baseline gap-3">
+                        <span className="text-7xl sm:text-8xl font-black text-slate-900 tracking-tighter">{predictedYield.toFixed(2)}</span>
+                        <span className="text-xl font-bold text-slate-400 uppercase tracking-tighter">kg/m2</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-900 rounded-[3rem] p-10 text-white shadow-2xl flex flex-col justify-between relative overflow-hidden">
                     <div className="absolute top-0 right-0 p-8 opacity-10"><TrendingUp size={120} /></div>
                     <div>
                       <h3 className="text-xl font-black mb-1 italic tracking-tight">Optimization Focus</h3>
@@ -566,7 +798,52 @@ export default function InputPage() {
                 </div>
 
                 <AdvisorPanel suggestions={advisorSuggestions} />
+
+                <div className="bg-white rounded-[3rem] p-8 border border-slate-200 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+                    <div>
+                      <h3 className="text-xl font-black flex items-center gap-3">
+                        <TrendingUp size={22} className="text-brand-600" /> Yield Before vs After
+                      </h3>
+                    </div>
+                    {bestYieldLoading && (
+                      <div className="px-4 py-2 rounded-2xl bg-slate-100 text-slate-500 text-xs font-black uppercase tracking-widest flex items-center gap-2">
+                        <RefreshCw size={14} className="animate-spin" /> Searching
+                      </div>
+                    )}
+                  </div>
+
+                  {bestYield ? (
+                    <div className="space-y-5">
+                      <div className="h-[280px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={[
+                              { label: 'Before', yield: bestYield.currentYield },
+                              { label: 'After', yield: bestYield.best.predictedYield },
+                            ]}
+                            margin={{ top: 12, right: 16, left: 0, bottom: 0 }}
+                          >
+                            <CartesianGrid stroke="#f1f5f9" vertical={false} />
+                            <XAxis dataKey="label" stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} />
+                            <YAxis stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={44} tickFormatter={v => v.toFixed(1)} />
+                            <Tooltip cursor={{ fill: '#f8fafc' }} formatter={v => [`${Number(v).toFixed(2)} kg/m2`, 'Predicted Yield']} />
+                            <Bar dataKey="yield" radius={[8, 8, 0, 0]} maxBarSize={90}>
+                              <Cell fill="#94a3b8" />
+                              <Cell fill="#16a34a" />
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl bg-slate-50 border border-dashed border-slate-200 p-6 text-sm font-bold text-slate-400 text-center">
+                      {bestYieldLoading ? 'Searching all tested yield combinations...' : 'Run prediction to generate the before and after comparison.'}
+                    </div>
+                  )}
+                </div>
               </div>
+
             ) : (
               <div className="h-full min-h-[500px] flex flex-col items-center justify-center text-center bg-white rounded-[3rem] border-2 border-dashed border-slate-100 p-12">
                 <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mb-8 animate-pulse text-slate-200"><FlaskConical size={40} /></div>
@@ -574,7 +851,8 @@ export default function InputPage() {
                 <p className="text-slate-400 text-sm max-w-sm mt-4 font-medium italic">Adjust the environmental matrix to see predicted growth potential.</p>
               </div>
             )}
-          </div>
+            </div>
+            </div>
         </div>
 
         <section className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -961,6 +1239,91 @@ export default function InputPage() {
                               )
                             })}
                           </div>
+                        </div>
+                      )}
+
+                      {timeSeriesResult && (
+                        <div className="mt-8">
+                          <AdvisorPanel suggestions={timeSeriesAdvisorSuggestions} />
+                        </div>
+                      )}
+
+                      {timeSeriesResult && (
+                        <div className="mt-8 bg-white rounded-[3rem] p-8 border border-slate-200 shadow-sm">
+                          <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+                            <div>
+                              <h3 className="text-xl font-black flex items-center gap-3">
+                                <TrendingUp size={22} className="text-brand-600" /> Growth Before vs After
+                              </h3>
+                            </div>
+                            {bestGrowthLoading && (
+                              <div className="px-4 py-2 rounded-2xl bg-slate-100 text-slate-500 text-xs font-black uppercase tracking-widest flex items-center gap-2">
+                                <RefreshCw size={14} className="animate-spin" /> Searching
+                              </div>
+                            )}
+                          </div>
+
+                          {bestGrowth ? (
+                            <div className="space-y-5">
+                              <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+                                <div>
+                                  <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-4 text-[11px] font-black uppercase tracking-widest">
+                                      <span className="flex items-center gap-2 text-slate-500"><span className="w-3 h-3 rounded-full bg-slate-400" /> Before</span>
+                                      {bestGrowth.hasImprovement && (
+                                        <span className="flex items-center gap-2 text-emerald-600"><span className="w-3 h-3 rounded-full bg-emerald-500" /> After</span>
+                                      )}
+                                    </div>
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">height cm</p>
+                                  </div>
+                                  <div className="h-[280px]">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                      <AreaChart data={bestGrowth.comparisonData} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+                                        <CartesianGrid stroke="#f1f5f9" vertical={false} />
+                                        <XAxis dataKey="day" stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} tickFormatter={d => `D${d}`} />
+                                        <YAxis stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={36} tickFormatter={v => v.toFixed(0)} />
+                                        <Tooltip cursor={{ stroke: '#cbd5e1', strokeDasharray: '4 4' }} />
+                                        <Area type="monotone" dataKey="currentHeight" name="Before Height" stroke="#94a3b8" strokeWidth={2.5} fill="#94a3b8" fillOpacity={0.08} dot={false} />
+                                        {bestGrowth.hasImprovement && (
+                                          <Area type="monotone" dataKey="recommendedHeight" name="After Height" stroke="#16a34a" strokeWidth={2.5} fill="#16a34a" fillOpacity={0.16} dot={false} />
+                                        )}
+                                      </AreaChart>
+                                    </ResponsiveContainer>
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-4 text-[11px] font-black uppercase tracking-widest">
+                                      <span className="flex items-center gap-2 text-slate-500"><span className="w-3 h-3 rounded-full bg-slate-400" /> Before</span>
+                                      {bestGrowth.hasImprovement && (
+                                        <span className="flex items-center gap-2 text-blue-600"><span className="w-3 h-3 rounded-full bg-blue-500" /> After</span>
+                                      )}
+                                    </div>
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">leaves</p>
+                                  </div>
+                                  <div className="h-[280px]">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                      <AreaChart data={bestGrowth.comparisonData} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+                                        <CartesianGrid stroke="#f1f5f9" vertical={false} />
+                                        <XAxis dataKey="day" stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} tickFormatter={d => `D${d}`} />
+                                        <YAxis stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={36} tickFormatter={v => v.toFixed(0)} />
+                                        <Tooltip cursor={{ stroke: '#cbd5e1', strokeDasharray: '4 4' }} />
+                                        <Area type="monotone" dataKey="currentLeaves" name="Before Leaves" stroke="#94a3b8" strokeWidth={2.5} fill="#94a3b8" fillOpacity={0.08} dot={false} />
+                                        {bestGrowth.hasImprovement && (
+                                          <Area type="monotone" dataKey="recommendedLeaves" name="After Leaves" stroke="#2563eb" strokeWidth={2.5} fill="#2563eb" fillOpacity={0.16} dot={false} />
+                                        )}
+                                      </AreaChart>
+                                    </ResponsiveContainer>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="rounded-2xl bg-slate-50 border border-dashed border-slate-200 p-6 text-sm font-bold text-slate-400 text-center">
+                              {bestGrowthLoading ? 'Searching all tested growth combinations...' : 'Run prediction to generate the before and after comparison.'}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

@@ -180,6 +180,7 @@ export default function GrowthTestPage() {
   const handlePredict = async () => {
     setLoading(true)
     setError('')
+    setResult(null)
     try {
       const payload = {
         startDay: parseInt(form.startDay, 10),

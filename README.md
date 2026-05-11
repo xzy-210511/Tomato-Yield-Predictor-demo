@@ -130,19 +130,49 @@ http://localhost:8080/#/
 
 ## Database
 
-The application now has a minimal prediction-history database.
+The application now has a minimal prediction-history database and a minimal user database for login/register.
 
 By default, local runs use an in-memory H2 database so the app can still start without installing PostgreSQL. For a persistent database, use the PostgreSQL profile.
 
-### Stored table
+Important: H2 is in-memory in the default profile. Registered users and prediction rows are lost when Spring Boot stops. Use PostgreSQL if you want users and records to remain after restart.
 
-Flyway creates this table automatically when Spring Boot starts:
+### Stored tables
+
+Flyway creates these tables automatically when Spring Boot starts:
 
 ```text
 prediction_records
+users
+simulation_records
 ```
 
-It stores the submitted greenhouse inputs, the predicted yield, a model version label, and the creation time.
+`prediction_records` stores the submitted greenhouse inputs, the predicted yield, a model version label, and the creation time.
+
+`users` stores registered users for the login/register page:
+
+```text
+id
+username
+password
+created_at
+```
+
+The current implementation stores passwords as plain text to keep the prototype simple. This is only suitable for local demo use. Before real deployment, replace this with password hashing such as BCrypt.
+
+`simulation_records` stores the history shown on the History page:
+
+```text
+id
+user_id
+record_name
+record_type
+input_json
+output_json
+summary_value
+created_at
+```
+
+`user_id` references `users.id`. If a user is deleted, their simulation records are deleted as well. The `input_json` and `output_json` columns allow the same table to store both yield predictions and time-series predictions.
 
 ### Start PostgreSQL with Docker
 
@@ -173,7 +203,52 @@ $env:DB_PASSWORD="tomato_app"
 .\mvnw.cmd spring-boot:run
 ```
 
+This mode persists registered users and prediction records in PostgreSQL.
+
 When `/api/predict` returns successfully, Spring Boot saves one row into `prediction_records`.
+
+When `/api/auth/register` returns successfully, Spring Boot saves one row into `users`.
+
+When a logged-in user runs a yield or time-series prediction, the frontend saves one row into `simulation_records` through `/api/records`. If the user is not logged in, the prediction still runs but history is not saved.
+
+### History page behavior
+
+The History page reads saved rows from `simulation_records`.
+
+Yield prediction records show:
+
+- record name and creation time
+- tomato variety as the record type
+- final predicted yield in `kg/m2`
+- expanded input details
+
+Time-series records show:
+
+- final plant height in `cm`
+- final leaf count
+- total nutrient solution supply in `L/plant`
+- expanded input details and the same summary values
+
+Comparison mode supports two separate workflows:
+
+- select two or more yield records to compare final predicted yield
+- select two or more time-series records to compare plant height, leaf count, and cumulative nutrient solution curves
+
+The first selected record decides the comparison type. After selecting a yield record, only yield records can be added to the current comparison. After selecting a time-series record, only time-series records can be added. Exit comparison mode to start a different comparison type.
+
+### Manual history checks
+
+Use Vite at `http://localhost:5173/` while checking frontend behavior.
+
+1. Register or log in.
+2. Run and save at least two yield predictions.
+3. Open History and confirm the yield rows show `kg/m2` results.
+4. Click `Compare Analytics`, select two yield rows, and confirm the yield comparison chart and baseline difference cards appear.
+5. Exit comparison mode.
+6. Run and save at least two time-series forecasts.
+7. Open History and confirm the time-series rows show final height, final leaves, and total NS.
+8. Click `Compare Analytics`, select two time-series rows, and confirm the three comparison charts appear: plant height, leaf count, and cumulative NS supply.
+9. Refresh the browser and reopen History to confirm the saved records still load from the backend database.
 
 ### Start the Vite development server
 
@@ -298,7 +373,26 @@ python.api.base-url=http://127.0.0.1:8001
 
 ```text
 POST /api/predict
+POST /api/auth/register
+POST /api/auth/login
+POST /api/records
+GET  /api/records?userId={userId}
+PATCH /api/records/{id}?userId={userId}
+DELETE /api/records/{id}?userId={userId}
 ```
+
+`/api/auth/register` creates a new user if the username is not already taken.
+
+`/api/auth/login` checks the submitted username and password against the `users` table.
+
+The frontend stores the logged-in user's `username` and `userId` in `localStorage` after a successful login or registration. There is currently no token, session, or Spring Security layer.
+
+`/api/records` stores and manages saved simulation history for the History page. The current implementation uses `userId` as a request parameter to scope records to a user.
+
+- `POST /api/records`: create a saved history record
+- `GET /api/records?userId={userId}`: list records for one user
+- `PATCH /api/records/{id}?userId={userId}`: rename one record
+- `DELETE /api/records/{id}?userId={userId}`: delete one record
 
 ### Python model service
 

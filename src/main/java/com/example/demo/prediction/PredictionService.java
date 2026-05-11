@@ -13,17 +13,22 @@ public class PredictionService {
 
     private final RestClient restClient;
     private final PredictionRecordRepository predictionRecordRepository;
+    private final PredictionInputValidator predictionInputValidator;
 
     public PredictionService(
             @Value("${python.api.base-url}") final String pythonApiBaseUrl,
-            final PredictionRecordRepository predictionRecordRepository) {
+            final PredictionRecordRepository predictionRecordRepository,
+            final PredictionInputValidator predictionInputValidator) {
         this.restClient = RestClient.builder()
                 .baseUrl(pythonApiBaseUrl)
                 .build();
         this.predictionRecordRepository = predictionRecordRepository;
+        this.predictionInputValidator = predictionInputValidator;
     }
 
     public PredictionResponse predict(final PredictionRequest request) {
+        predictionInputValidator.validate(request);
+
         final Map<String, Object> pythonPayload = new LinkedHashMap<>();
         pythonPayload.put("avg_temperature_C", request.getAvgTemperatureC());
         pythonPayload.put("min_temperature_C", request.getMinTemperatureC());
