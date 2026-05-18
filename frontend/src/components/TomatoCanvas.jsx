@@ -12,6 +12,18 @@ function remap(val, inMin, inMax, outMin, outMax) {
   return outMin + t * (outMax - outMin)
 }
 
+function clamp01(val) {
+  return Math.max(0, Math.min(1, val))
+}
+
+function getPredictionScore(prediction) {
+  const predictedYield = prediction?.predicted_yield_kg_per_m2
+  if (!Number.isFinite(predictedYield)) return null
+
+  // Demo model outputs are kg/m2; this range keeps backend influence visible but not overpowering.
+  return remap(predictedYield, 2, 14, 0, 1)
+}
+
 function computeHealth(m) {
   const temp  = parseFloat(m.avgTemperatureC   || 25)
   const hum   = parseFloat(m.humidityPercent   || 70)
@@ -36,6 +48,14 @@ function computeHealth(m) {
     (1 - remap(pest, 0, 5, 0, 1)) * 0.15 +
     remap((n + p + k) / 3, 0, 300, 0.1, 1) * 0.10
   )
+}
+
+function computeBlendedHealth(metrics, prediction) {
+  const inputHealth = clamp01(computeHealth(metrics))
+  const predictionScore = getPredictionScore(prediction)
+  if (predictionScore == null) return inputHealth
+
+  return inputHealth * 0.7 + predictionScore * 0.3
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -353,13 +373,13 @@ function PestBugs({ pestLevel }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Organic idle — whole group sway + breath
 // ─────────────────────────────────────────────────────────────────────────────
-function useOrganicIdle(groupRef, metricsRef) {
+function useOrganicIdle(groupRef, visualRef) {
   useFrame(({ clock }) => {
     if (!groupRef.current) return
     const t      = clock.getElapsedTime()
-    const m      = metricsRef.current || {}
+    const { metrics: m = {}, prediction = null } = visualRef.current || {}
     const wind   = remap(parseFloat(m.humidityPercent || 70), 20, 100, 0.004, 0.014)
-    const health = computeHealth(m)
+    const health = computeBlendedHealth(m, prediction)
 
     groupRef.current.rotation.z = Math.sin(t * wind * 55) * 0.016 * (0.6 + (1 - health) * 0.6)
 
@@ -375,14 +395,14 @@ function useOrganicIdle(groupRef, metricsRef) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Tomato model — colours overridden directly, no part position/scale changes
 // ─────────────────────────────────────────────────────────────────────────────
-function TomatoModel({ metrics }) {
+function TomatoModel({ metrics, prediction }) {
   const { scene }   = useGLTF('/models/tomato.glb')
   const groupRef    = useRef()
-  const metricsRef  = useRef(metrics)
+  const visualRef   = useRef({ metrics, prediction })
   const tlRef       = useRef(null)
   const firstRender = useRef(true)
 
-  useOrganicIdle(groupRef, metricsRef)
+  useOrganicIdle(groupRef, visualRef)
 
   const parts = useMemo(() => {
     scene.traverse((obj) => {
@@ -402,7 +422,7 @@ function TomatoModel({ metrics }) {
   }, [scene])
 
   useEffect(() => {
-    metricsRef.current = metrics
+    visualRef.current = { metrics, prediction }
     if (!scene || !groupRef.current) return
     if (tlRef.current) tlRef.current.kill()
 
@@ -422,20 +442,23 @@ function TomatoModel({ metrics }) {
     const p     = parseFloat(metrics.fertilizerPKgHa   || 0)
     const k     = parseFloat(metrics.fertilizerKKgHa   || 0)
 
-    const health = computeHealth(metrics)
+    const predictionScore = getPredictionScore(prediction)
+    const health = computeBlendedHealth(metrics, prediction)
+    const yieldBoost = predictionScore == null ? 0 : predictionScore - 0.5
 
     // Whole plant scale
     const plantScale =
       remap(health, 0, 1, 0.55, 1.2)  *
       remap(co2,  300, 2000, 0.88, 1.12) *
       remap(photo,  0,   18, 0.78, 1.08) *
-      remap(light,  0, 80000, 0.82, 1.10)
+      remap(light,  0, 80000, 0.82, 1.10) *
+      (1 + yieldBoost * 0.18)
     groupRef.current.userData.baseScale = 2.5 * plantScale
 
     // ── Fruit colour: override completely, ignore original material tint ──────
     // k=0 → unripe green, k=300 → ripe red
-    const kFactor     = remap(k, 0, 300, 0, 1)
-    const waterFactor = remap(water, 0, 40, 1, 0.72)
+    const kFactor     = clamp01(remap(k, 0, 300, 0, 1) + yieldBoost * 0.22)
+    const waterFactor = remap(water, 0, 40, 1, 0.72) * (1 + yieldBoost * 0.08)
     const fR = (0.08 + kFactor * 0.80) * waterFactor
     const fG = (0.45 - kFactor * 0.38) * waterFactor
     const fB = (0.05 - kFactor * 0.02) * waterFactor
@@ -445,9 +468,9 @@ function TomatoModel({ metrics }) {
     const pestFactor = remap(pest, 0, 5, 0, 1)
     const nFactor    = remap(n, 0, 400, 0.2, 1)
     const drought    = remap(water, 0, 4, 1, 0)
-    const lR = 0.10 + pestFactor * 0.45 + drought * 0.35 + (1 - phPenalty) * 0.25
-    const lG = (0.55 + nFactor * 0.10) * phPenalty * (1 - pestFactor * 0.35) * (1 - drought * 0.25)
-    const lB = 0.08 * (1 - pestFactor * 0.6)
+    const lR = 0.10 + pestFactor * 0.45 + drought * 0.35 + (1 - phPenalty) * 0.25 - yieldBoost * 0.08
+    const lG = (0.55 + nFactor * 0.10 + yieldBoost * 0.14) * phPenalty * (1 - pestFactor * 0.35) * (1 - drought * 0.25)
+    const lB = 0.08 * (1 - pestFactor * 0.6) + Math.max(0, yieldBoost) * 0.03
 
     // Leaf droop
     const heatStress = remap(temp, 30, 45, 0, 0.30)
@@ -490,7 +513,7 @@ function TomatoModel({ metrics }) {
     })
 
     return () => { if (tlRef.current) tlRef.current.kill() }
-  }, [metrics, scene, parts])
+  }, [metrics, prediction, scene, parts])
 
   return scene ? (
     <group ref={groupRef} position={[0, -1.2, 0]}>
@@ -537,7 +560,7 @@ function DynamicLighting({ metrics }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Main export
 // ─────────────────────────────────────────────────────────────────────────────
-const TomatoCanvas = ({ metrics }) => {
+const TomatoCanvas = ({ metrics, prediction }) => {
   if (!metrics) return null
 
   const humidity  = parseFloat(metrics.humidityPercent   || 70)
@@ -559,7 +582,7 @@ const TomatoCanvas = ({ metrics }) => {
         <DynamicLighting metrics={metrics} />
 
         <Suspense fallback={null}>
-          <TomatoModel metrics={metrics} />
+          <TomatoModel metrics={metrics} prediction={prediction} />
           <RainSystem  humidity={humidity} />
           <SunRays     lightIntensity={lightLux} />
           <SunMotes    lightIntensity={lightLux} />

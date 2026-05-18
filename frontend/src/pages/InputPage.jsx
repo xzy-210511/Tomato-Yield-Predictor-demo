@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import TomatoCanvas from '../components/TomatoCanvas.jsx'
 import {
@@ -98,6 +98,21 @@ const INITIAL_TS_FORM = {
   co2Mean: '440',
   parLampDaily: '560',
   lightOnHoursDaily: '8',
+}
+
+function buildYieldPayload(form) {
+  const payload = Object.fromEntries(
+    Object.entries(form).map(([key, value]) => [
+      key,
+      key === 'variety' ? value : parseFloat(value),
+    ])
+  )
+
+  const hasInvalidNumber = Object.entries(payload).some(([key, value]) => (
+    key !== 'variety' && !Number.isFinite(value)
+  ))
+
+  return hasInvalidNumber ? null : payload
 }
 
 const PARAMETER_GROUPS = [
@@ -283,17 +298,63 @@ export default function InputPage() {
   const [bestGrowthLoading, setBestGrowthLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
+  const [livePrediction, setLivePrediction] = useState({
+    response: null,
+    loading: false,
+    error: '',
+  })
   const [timeSeriesResult, setTimeSeriesResult] = useState(null)
   const [bestYield, setBestYield] = useState(null)
   const [bestGrowth, setBestGrowth] = useState(null)
   const [viewMode, setViewMode] = useState('default')
   const navigate = useNavigate()
+  const livePredictionRequestRef = useRef(0)
   const user = localStorage.getItem('user')
   const userId = localStorage.getItem('userId')
 
   const updateField = (key, value) => setForm(prev => ({ ...prev, [key]: value }))
   const updateTimeSeriesField = (key, value) =>
     setTimeSeriesForm(prev => ({ ...prev, [key]: value }))
+
+  useEffect(() => {
+    if (viewMode !== '3d') {
+      livePredictionRequestRef.current += 1
+      setLivePrediction(prev => ({ ...prev, loading: false }))
+      return undefined
+    }
+
+    const payload = buildYieldPayload(form)
+    const requestId = livePredictionRequestRef.current + 1
+    livePredictionRequestRef.current = requestId
+    let cancelled = false
+
+    if (!payload) {
+      setLivePrediction({ response: null, loading: false, error: '' })
+      return undefined
+    }
+
+    setLivePrediction(prev => ({ ...prev, loading: true, error: '' }))
+
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const response = await predictGrowth(payload)
+        if (cancelled || livePredictionRequestRef.current !== requestId) return
+        setLivePrediction({ response, loading: false, error: '' })
+      } catch (e) {
+        if (cancelled || livePredictionRequestRef.current !== requestId) return
+        setLivePrediction({
+          response: null,
+          loading: false,
+          error: e.message || 'Live prediction failed.',
+        })
+      }
+    }, 500)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeoutId)
+    }
+  }, [form, viewMode])
 
   const bottleneck = useMemo(() => {
     if (!result) return null
@@ -440,9 +501,10 @@ export default function InputPage() {
     setResult(null)
     setBestYield(null)
     try {
-      const payload = Object.fromEntries(
-        Object.entries(form).map(([k, v]) => [k, k === 'variety' ? v : parseFloat(v)])
-      )
+      const payload = buildYieldPayload(form)
+      if (!payload) {
+        throw new Error('Please enter valid values before running the simulation.')
+      }
       const response = await predictGrowth(payload)
       if (response && response.predicted_yield_kg_per_m2 !== undefined) {
         setResult({ response, payload })
@@ -752,7 +814,7 @@ export default function InputPage() {
 
               {viewMode === '3d' ? (
                 <div className="h-[520px] rounded-2xl overflow-hidden bg-slate-50 flex items-center justify-center">
-                  <TomatoCanvas metrics={form} />
+                  <TomatoCanvas metrics={form} prediction={livePrediction.response} />
                 </div>
 
               ) : result ? (
