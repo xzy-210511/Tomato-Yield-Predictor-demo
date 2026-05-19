@@ -1303,31 +1303,6 @@ function evalYieldContext(predictedYield, currentTips) {
 
 const EMPTY_COUNTS = { critical: 0, high: 0, medium: 0, low: 0, info: 0 }
 
-export function deriveBottleneck(form) {
-  if (!form || typeof form !== 'object') return null
-  const pest = num(form.pestSeverity)
-  const co2 = num(form.co2Ppm)
-  const pH = num(form.pH)
-  if (Number.isFinite(pest) && pest >= 3) {
-    return { label: 'Pest Level', desc: 'Critical pest levels detected.', color: 'red' }
-  }
-  if (Number.isFinite(co2) && co2 < 600) {
-    return { label: 'CO2 Level', desc: 'Low CO2 is limiting photosynthesis.', color: 'blue' }
-  }
-  if (Number.isFinite(pH) && (pH < 5.8 || pH > 7.2)) {
-    return { label: 'Soil pH', desc: 'pH imbalance is affecting nutrient uptake.', color: 'orange' }
-  }
-  return { label: 'Balanced', desc: 'Metabolic rates are within a healthy range.', color: 'emerald' }
-}
-
-export function deriveYieldClass(predictedYield) {
-  const v = num(predictedYield)
-  if (!Number.isFinite(v)) return null
-  if (v < 12) return 'Low'
-  if (v < 20) return 'Stable'
-  return 'High'
-}
-
 export function analyzeYieldInput(form, predictedYield) {
   if (!form || typeof form !== 'object') {
     return { suggestions: [], counts: { ...EMPTY_COUNTS } }
@@ -1382,3 +1357,29 @@ export function analyzeYieldInput(form, predictedYield) {
 
   return { suggestions: tips, counts }
 }
+
+export function deriveBottleneck(form) {
+  if (!form || typeof form !== 'object') return null
+  const pest = num(form.pestSeverity)
+  const co2 = num(form.co2Ppm)
+  const pH = num(form.pH)
+  if (Number.isFinite(pest) && pest >= 3) {
+    return { label: 'Pest Level', desc: 'Critical pest levels detected.', color: 'red' }
+  }
+  if (Number.isFinite(co2) && co2 < 600) {
+    return { label: 'CO2 Level', desc: 'Low CO2 is limiting photosynthesis.', color: 'blue' }
+  }
+  if (Number.isFinite(pH) && (pH < 5.8 || pH > 7.2)) {
+    return { label: 'Soil pH', desc: 'pH imbalance is affecting nutrient uptake.', color: 'orange' }
+  }
+  return { label: 'Balanced', desc: 'Metabolic rates are within a healthy range.', color: 'emerald' }
+}
+
+export function deriveYieldClass(predictedYield) {
+  const v = num(predictedYield)
+  if (!Number.isFinite(v)) return null
+  if (v < 12) return 'Low'
+  if (v < 20) return 'Stable'
+  return 'High'
+}
+

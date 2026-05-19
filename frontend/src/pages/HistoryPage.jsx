@@ -33,9 +33,8 @@ import { deleteRecord, listRecords, renameRecord } from '../api/records';
 import { analyzeYieldInput, deriveBottleneck, deriveYieldClass } from '../lib/advisor';
 import { analyzeTimeSeriesInput } from '../lib/timeSeriesAdvisor';
 
-const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'];
-
 const SERIES_COLORS = ['#0ea5e9', '#22c55e', '#f97316', '#8b5cf6', '#ef4444', '#14b8a6'];
+const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'];
 
 function buildTimeSeriesData(output = {}) {
   let cumulativeNs = 0;

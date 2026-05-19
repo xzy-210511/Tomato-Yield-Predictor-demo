@@ -1,4 +1,4 @@
-import React, { Suspense, useRef, useEffect, useMemo } from 'react'
+import React, { Suspense, useRef, useEffect, useMemo, useState } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { useGLTF, Environment, OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
@@ -10,6 +10,18 @@ import gsap from 'gsap'
 function remap(val, inMin, inMax, outMin, outMax) {
   const t = Math.max(0, Math.min(1, (val - inMin) / (inMax - inMin)))
   return outMin + t * (outMax - outMin)
+}
+
+function clamp01(val) {
+  return Math.max(0, Math.min(1, val))
+}
+
+function getPredictionScore(prediction) {
+  const predictedYield = prediction?.predicted_yield_kg_per_m2
+  if (!Number.isFinite(predictedYield)) return null
+
+  // Demo model outputs are kg/m2; this range keeps backend influence visible but not overpowering.
+  return remap(predictedYield, 2, 14, 0, 1)
 }
 
 function computeHealth(m) {
@@ -35,6 +47,149 @@ function computeHealth(m) {
     (1 - remap(Math.abs(ph - 6.5), 0, 2.5, 0, 1)) * 0.10 +
     (1 - remap(pest, 0, 5, 0, 1)) * 0.15 +
     remap((n + p + k) / 3, 0, 300, 0.1, 1) * 0.10
+  )
+}
+
+function computeBlendedHealth(metrics, prediction) {
+  const inputHealth = clamp01(computeHealth(metrics))
+  const predictionScore = getPredictionScore(prediction)
+  if (predictionScore == null) return inputHealth
+
+  return inputHealth * 0.7 + predictionScore * 0.3
+}
+
+function formatNumber(value, digits = 0) {
+  const number = parseFloat(value)
+  if (!Number.isFinite(number)) return 'N/A'
+  return number.toFixed(digits)
+}
+
+function buildInsightItems(metrics, prediction) {
+  const temp = parseFloat(metrics.avgTemperatureC || 25)
+  const humidity = parseFloat(metrics.humidityPercent || 70)
+  const co2 = parseFloat(metrics.co2Ppm || 800)
+  const light = parseFloat(metrics.lightIntensityLux || 30000)
+  const photoperiod = parseFloat(metrics.photoperiodHours || 12)
+  const water = parseFloat(metrics.irrigationMm || 7)
+  const ph = parseFloat(metrics.pH || 6.5)
+  const pest = parseFloat(metrics.pestSeverity || 0)
+  const nitrogen = parseFloat(metrics.fertilizerNKgHa || 0)
+  const potassium = parseFloat(metrics.fertilizerKKgHa || 0)
+  const predictedYield = prediction?.predicted_yield_kg_per_m2
+  const healthPercent = Math.round(computeBlendedHealth(metrics, prediction) * 100)
+
+  return [
+    {
+      id: 'health',
+      label: 'Health',
+      value: `${healthPercent}%`,
+      title: 'Overall plant health',
+      body: `The model blends input conditions with backend yield prediction. Temperature near 23C, balanced pH, enough light, water and low pests make the plant larger, steadier and more vibrant.`,
+    },
+    {
+      id: 'light',
+      label: 'Light',
+      value: `${formatNumber(light)} lux`,
+      title: 'Light controls brightness and growth energy',
+      body: `Higher light intensity and longer photoperiod increase scene brightness, sun rays, floating motes and plant scale. Low light makes the plant look less energetic and smaller.`,
+    },
+    {
+      id: 'water',
+      label: 'Water',
+      value: `${formatNumber(water, 1)} mm`,
+      title: 'Water affects leaf curl and fruit freshness',
+      body: `Too little irrigation creates drought stress, curling the leaves and reducing fresh colour. Higher humidity also makes rain streaks more visible in the 3D scene.`,
+    },
+    {
+      id: 'nutrients',
+      label: 'Nutrients',
+      value: `N ${formatNumber(nitrogen)} / K ${formatNumber(potassium)}`,
+      title: 'Nutrients shape leaf and fruit colour',
+      body: `More nitrogen supports greener leaves. Potassium pushes fruit colour from green toward ripe red, while pH far from 6.5 reduces leaf quality and makes the plant look stressed.`,
+    },
+    {
+      id: 'climate',
+      label: 'Climate',
+      value: `${formatNumber(temp, 1)}C / ${formatNumber(co2)} ppm`,
+      title: 'Climate changes movement and atmosphere',
+      body: `Temperature shifts the plant posture, humidity affects sway and rain, and higher CO2 adds pale mist. These inputs also contribute to the health score used for scale and glow.`,
+    },
+    {
+      id: 'pests',
+      label: 'Pests',
+      value: `${formatNumber(pest)} / 5`,
+      title: 'Pests reduce visible plant quality',
+      body: `Higher pest severity adds bug particles, lowers health, increases leaf stress and pushes leaves toward weaker yellow-brown tones.`,
+    },
+    {
+      id: 'ai',
+      label: 'AI Yield',
+      value: Number.isFinite(predictedYield) ? `${predictedYield.toFixed(2)} kg/m2` : 'Waiting',
+      title: 'Backend prediction fine-tunes the 3D model',
+      body: `When the backend returns a yield estimate, high predicted yield makes the plant fuller, redder and greener. Low predicted yield slightly reduces scale and colour confidence.`,
+    },
+  ]
+}
+
+function ModelInsightPanel({ metrics, prediction }) {
+  const items = useMemo(() => buildInsightItems(metrics, prediction), [metrics, prediction])
+  const [activeId, setActiveId] = useState('health')
+  const [isOpen, setIsOpen] = useState(false)
+  const activeItem = items.find(item => item.id === activeId) || items[0]
+
+  if (!isOpen) {
+    return (
+      <button
+        type="button"
+        onClick={() => setIsOpen(true)}
+        className="absolute left-4 top-4 z-10 rounded-full border border-white/70 bg-white/85 px-4 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-brand-600 shadow-xl backdrop-blur-md transition-all hover:bg-white hover:text-brand-700"
+      >
+        3D Growth Guide
+      </button>
+    )
+  }
+
+  return (
+    <div className="absolute left-4 top-4 z-10 w-[min(360px,calc(100%-2rem))] rounded-3xl border border-white/70 bg-white/85 p-4 text-slate-800 shadow-xl backdrop-blur-md">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-brand-600">3D Growth Guide</p>
+          <h3 className="mt-1 text-sm font-black text-slate-900">How inputs affect the tomato</h3>
+        </div>
+        <button
+          type="button"
+          onClick={() => setIsOpen(false)}
+          className="rounded-full bg-slate-900 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-white transition-colors hover:bg-slate-700"
+        >
+          Hide
+        </button>
+      </div>
+
+      <div className="mt-3 flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
+        {items.map(item => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setActiveId(item.id)}
+            className={`shrink-0 rounded-full px-3 py-1.5 text-[10px] font-black transition-all ${
+              activeId === item.id
+                ? 'bg-brand-600 text-white shadow-md shadow-brand-100'
+                : 'bg-white/80 text-slate-500 hover:bg-slate-100'
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-3 rounded-2xl bg-slate-50/90 p-3">
+        <div className="mb-1 flex items-center justify-between gap-3">
+          <p className="text-xs font-black text-slate-900">{activeItem.title}</p>
+          <p className="shrink-0 text-[10px] font-black text-brand-600">{activeItem.value}</p>
+        </div>
+        <p className="text-[11px] font-semibold leading-relaxed text-slate-500">{activeItem.body}</p>
+      </div>
+    </div>
   )
 }
 
@@ -353,13 +508,13 @@ function PestBugs({ pestLevel }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Organic idle — whole group sway + breath
 // ─────────────────────────────────────────────────────────────────────────────
-function useOrganicIdle(groupRef, metricsRef) {
+function useOrganicIdle(groupRef, visualRef) {
   useFrame(({ clock }) => {
     if (!groupRef.current) return
     const t      = clock.getElapsedTime()
-    const m      = metricsRef.current || {}
+    const { metrics: m = {}, prediction = null } = visualRef.current || {}
     const wind   = remap(parseFloat(m.humidityPercent || 70), 20, 100, 0.004, 0.014)
-    const health = computeHealth(m)
+    const health = computeBlendedHealth(m, prediction)
 
     groupRef.current.rotation.z = Math.sin(t * wind * 55) * 0.016 * (0.6 + (1 - health) * 0.6)
 
@@ -375,14 +530,14 @@ function useOrganicIdle(groupRef, metricsRef) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Tomato model — colours overridden directly, no part position/scale changes
 // ─────────────────────────────────────────────────────────────────────────────
-function TomatoModel({ metrics }) {
+function TomatoModel({ metrics, prediction }) {
   const { scene }   = useGLTF('/models/tomato.glb')
   const groupRef    = useRef()
-  const metricsRef  = useRef(metrics)
+  const visualRef   = useRef({ metrics, prediction })
   const tlRef       = useRef(null)
   const firstRender = useRef(true)
 
-  useOrganicIdle(groupRef, metricsRef)
+  useOrganicIdle(groupRef, visualRef)
 
   const parts = useMemo(() => {
     scene.traverse((obj) => {
@@ -402,7 +557,7 @@ function TomatoModel({ metrics }) {
   }, [scene])
 
   useEffect(() => {
-    metricsRef.current = metrics
+    visualRef.current = { metrics, prediction }
     if (!scene || !groupRef.current) return
     if (tlRef.current) tlRef.current.kill()
 
@@ -422,20 +577,23 @@ function TomatoModel({ metrics }) {
     const p     = parseFloat(metrics.fertilizerPKgHa   || 0)
     const k     = parseFloat(metrics.fertilizerKKgHa   || 0)
 
-    const health = computeHealth(metrics)
+    const predictionScore = getPredictionScore(prediction)
+    const health = computeBlendedHealth(metrics, prediction)
+    const yieldBoost = predictionScore == null ? 0 : predictionScore - 0.5
 
     // Whole plant scale
     const plantScale =
       remap(health, 0, 1, 0.55, 1.2)  *
       remap(co2,  300, 2000, 0.88, 1.12) *
       remap(photo,  0,   18, 0.78, 1.08) *
-      remap(light,  0, 80000, 0.82, 1.10)
+      remap(light,  0, 80000, 0.82, 1.10) *
+      (1 + yieldBoost * 0.18)
     groupRef.current.userData.baseScale = 2.5 * plantScale
 
     // ── Fruit colour: override completely, ignore original material tint ──────
     // k=0 → unripe green, k=300 → ripe red
-    const kFactor     = remap(k, 0, 300, 0, 1)
-    const waterFactor = remap(water, 0, 40, 1, 0.72)
+    const kFactor     = clamp01(remap(k, 0, 300, 0, 1) + yieldBoost * 0.22)
+    const waterFactor = remap(water, 0, 40, 1, 0.72) * (1 + yieldBoost * 0.08)
     const fR = (0.08 + kFactor * 0.80) * waterFactor
     const fG = (0.45 - kFactor * 0.38) * waterFactor
     const fB = (0.05 - kFactor * 0.02) * waterFactor
@@ -445,9 +603,9 @@ function TomatoModel({ metrics }) {
     const pestFactor = remap(pest, 0, 5, 0, 1)
     const nFactor    = remap(n, 0, 400, 0.2, 1)
     const drought    = remap(water, 0, 4, 1, 0)
-    const lR = 0.10 + pestFactor * 0.45 + drought * 0.35 + (1 - phPenalty) * 0.25
-    const lG = (0.55 + nFactor * 0.10) * phPenalty * (1 - pestFactor * 0.35) * (1 - drought * 0.25)
-    const lB = 0.08 * (1 - pestFactor * 0.6)
+    const lR = 0.10 + pestFactor * 0.45 + drought * 0.35 + (1 - phPenalty) * 0.25 - yieldBoost * 0.08
+    const lG = (0.55 + nFactor * 0.10 + yieldBoost * 0.14) * phPenalty * (1 - pestFactor * 0.35) * (1 - drought * 0.25)
+    const lB = 0.08 * (1 - pestFactor * 0.6) + Math.max(0, yieldBoost) * 0.03
 
     // Leaf droop
     const heatStress = remap(temp, 30, 45, 0, 0.30)
@@ -490,7 +648,7 @@ function TomatoModel({ metrics }) {
     })
 
     return () => { if (tlRef.current) tlRef.current.kill() }
-  }, [metrics, scene, parts])
+  }, [metrics, prediction, scene, parts])
 
   return scene ? (
     <group ref={groupRef} position={[0, -1.2, 0]}>
@@ -537,7 +695,7 @@ function DynamicLighting({ metrics }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Main export
 // ─────────────────────────────────────────────────────────────────────────────
-const TomatoCanvas = ({ metrics }) => {
+const TomatoCanvas = ({ metrics, prediction }) => {
   if (!metrics) return null
 
   const humidity  = parseFloat(metrics.humidityPercent   || 70)
@@ -547,6 +705,7 @@ const TomatoCanvas = ({ metrics }) => {
 
   return (
     <div className="h-full w-full relative overflow-hidden">
+      <ModelInsightPanel metrics={metrics} prediction={prediction} />
       <Canvas
         shadows
         camera={{ position: [0, 2, 6], fov: 40 }}
@@ -559,7 +718,7 @@ const TomatoCanvas = ({ metrics }) => {
         <DynamicLighting metrics={metrics} />
 
         <Suspense fallback={null}>
-          <TomatoModel metrics={metrics} />
+          <TomatoModel metrics={metrics} prediction={prediction} />
           <RainSystem  humidity={humidity} />
           <SunRays     lightIntensity={lightLux} />
           <SunMotes    lightIntensity={lightLux} />
