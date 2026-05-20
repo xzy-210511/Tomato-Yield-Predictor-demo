@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import TopNav from '../components/TopNav';
 import {
   Activity,
-  ArrowLeft,
   ArrowUpDown,
   BarChart3,
   Calendar,
@@ -127,7 +127,7 @@ function DetailItem({ label, value }) {
   return (
     <div className="flex justify-between items-center text-xs">
       <span className="text-slate-400 font-medium">{label}</span>
-      <span className="text-slate-900 font-bold">{value}</span>
+      <span className="text-slate-50 font-bold">{value}</span>
     </div>
   );
 }
@@ -137,7 +137,7 @@ function RecordResultCell({ item }) {
     return (
       <div className="space-y-1 text-right">
         <div>
-          <span className="text-xl font-black text-brand-700 tabular-nums">
+          <span className="text-xl font-black text-brand-400 tabular-nums">
             {formatNumber(item.finalPlantHeight)}
           </span>
           <span className="text-[10px] text-slate-400 ml-1.5 font-black uppercase tracking-tighter">cm</span>
@@ -145,7 +145,7 @@ function RecordResultCell({ item }) {
         <p className="text-xs font-bold text-slate-500">
           {formatNumber(item.finalLeafCount)} leaves
         </p>
-        <p className="text-xs font-bold text-cyan-600">
+        <p className="text-xs font-bold text-cyan-400">
           {formatNumber(item.totalNsSupply)} L/plant NS
         </p>
       </div>
@@ -154,7 +154,7 @@ function RecordResultCell({ item }) {
 
   return (
     <>
-      <span className="text-xl font-black text-brand-700">
+      <span className="text-xl font-black text-brand-400">
         {formatNumber(item.output)}
       </span>
       <span className="text-[10px] text-slate-400 ml-1.5 font-black uppercase tracking-tighter">
@@ -186,7 +186,7 @@ function RecordDetailSummary({ item }) {
       <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">
         {getRecordOutputLabel(item.input, item)}
       </p>
-      <p className="text-2xl font-black text-slate-900">
+      <p className="text-2xl font-black text-slate-50">
         {formatNumber(item.output)} <span className="text-xs">{getRecordUnit(item.input, item)}</span>
       </p>
       <p className="text-[10px] text-brand-500 font-bold mt-1">Validated Model</p>
@@ -211,18 +211,19 @@ function TimeSeriesComparisonChart({ title, unit, metricKey, records }) {
   const chartData = buildTimeSeriesMetricData(records, metricKey);
 
   return (
-    <div className="border border-slate-100 rounded-2xl p-4 bg-slate-50/50">
-      <h4 className="text-sm font-black text-slate-800 mb-4">{title}</h4>
+    <div className="border border-ink-700/60 rounded-2xl p-4 bg-ink-850/60/50">
+      <h4 className="text-sm font-black text-slate-100 mb-4">{title}</h4>
       <div className="h-64 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1a3d2a" />
             <XAxis dataKey="day" fontSize={11} tickLine={false} axisLine={false} dy={10} />
             <YAxis fontSize={11} tickLine={false} axisLine={false} dx={-10} unit={` ${unit}`} />
             <Tooltip
               formatter={(value, name) => [`${formatNumber(value)} ${unit}`, name]}
               labelFormatter={(day) => `Day ${day}`}
-              contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}
+              contentStyle={{ background: '#0a1a12', border: '1px solid #1a3d2a', borderRadius: '16px', color: '#e2e8f0' }}
+              labelStyle={{ color: '#94a3b8' }}
             />
             <Legend />
             {records.map((record, index) => (
@@ -501,6 +502,11 @@ function buildExportRows(items) {
 export default function HistoryPage() {
   const navigate = useNavigate();
 
+  useEffect(() => {
+    document.body.classList.add('theme-dark');
+    return () => document.body.classList.remove('theme-dark');
+  }, []);
+
   const userId = localStorage.getItem('userId');
 
   const [historyData, setHistoryData] = useState([]);
@@ -664,20 +670,15 @@ export default function HistoryPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] p-4 md:p-8">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <div className="relative min-h-screen overflow-hidden bg-hero-radial text-slate-100">
+      <div className="pointer-events-none absolute inset-0 grid-bg opacity-20" />
+      <TopNav variant="dark" />
+      <div className="relative z-10 max-w-6xl mx-auto space-y-6 p-4 md:p-8">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => navigate('/')}
-              className="p-2.5 bg-white border border-slate-200 rounded-2xl hover:bg-slate-50 transition-all shadow-sm group"
-            >
-              <ArrowLeft size={20} className="text-slate-600 group-hover:-translate-x-0.5 transition-transform" />
-            </button>
-            <div>
-              <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">History</h1>
-              <p className="text-sm text-slate-500 font-medium italic">Manage and inspect your tomato simulations</p>
-            </div>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.36em] text-brand-500">Living Lab</p>
+            <h1 className="text-3xl font-black text-slate-100 tracking-tight">History</h1>
+            <p className="text-sm text-slate-400 font-medium italic">Manage and inspect your tomato simulations</p>
           </div>
 
           <div className="flex items-center gap-3">
@@ -685,33 +686,33 @@ export default function HistoryPage() {
               <button
                 onClick={() => setExportMenuOpen((open) => !open)}
                 disabled={processedData.length === 0}
-                className="flex items-center gap-2 px-6 py-3 rounded-2xl text-sm font-bold transition-all shadow-md bg-white border border-slate-200 text-slate-700 hover:border-brand-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-slate-200"
+                className="flex items-center gap-2 px-6 py-3 rounded-2xl text-sm font-bold transition-all shadow-md bg-ink-900/80 backdrop-blur-md border border-ink-700 text-slate-200 hover:border-brand-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-ink-700"
               >
                 <Download size={18} />
                 Export
                 <ChevronDown size={14} className={`transition-transform ${exportMenuOpen ? 'rotate-180' : ''}`} />
               </button>
               {exportMenuOpen && (
-                <div className="absolute right-0 mt-2 w-44 bg-white border border-slate-200 rounded-2xl shadow-xl shadow-slate-200/60 overflow-hidden z-20 animate-in fade-in zoom-in-95 duration-150">
+                <div className="absolute right-0 mt-2 w-44 bg-ink-900/80 backdrop-blur-md border border-ink-700 rounded-2xl shadow-xl shadow-slate-200/60 overflow-hidden z-20 animate-in fade-in zoom-in-95 duration-150">
                   <button
                     onClick={() => handleExport('csv')}
-                    className="w-full text-left px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-brand-50 hover:text-brand-700 transition-colors"
+                    className="w-full text-left px-4 py-3 text-sm font-semibold text-slate-200 hover:bg-brand-500/10 hover:text-brand-400 transition-colors"
                   >
                     Export as CSV
                   </button>
                   <button
                     onClick={() => handleExport('md')}
-                    className="w-full text-left px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-brand-50 hover:text-brand-700 transition-colors border-t border-slate-100"
+                    className="w-full text-left px-4 py-3 text-sm font-semibold text-slate-200 hover:bg-brand-500/10 hover:text-brand-400 transition-colors border-t border-ink-700/60"
                   >
                     Export as Markdown
                   </button>
                   <button
                     onClick={() => handleExport('json')}
-                    className="w-full text-left px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-brand-50 hover:text-brand-700 transition-colors border-t border-slate-100"
+                    className="w-full text-left px-4 py-3 text-sm font-semibold text-slate-200 hover:bg-brand-500/10 hover:text-brand-400 transition-colors border-t border-ink-700/60"
                   >
                     Export as JSON
                   </button>
-                  <div className="px-4 py-2 text-[10px] text-slate-400 font-medium bg-slate-50 border-t border-slate-100">
+                  <div className="px-4 py-2 text-[10px] text-slate-400 font-medium bg-ink-850/60 border-t border-ink-700/60">
                     Exports {processedData.length} filtered record{processedData.length === 1 ? '' : 's'}
                   </div>
                 </div>
@@ -726,7 +727,7 @@ export default function HistoryPage() {
               className={`flex items-center gap-2 px-6 py-3 rounded-2xl text-sm font-bold transition-all shadow-md ${
                 compareMode
                   ? 'bg-brand-600 text-white ring-4 ring-brand-100 shadow-brand-200'
-                  : 'bg-white border border-slate-200 text-slate-700 hover:border-brand-500'
+                  : 'bg-ink-900/80 backdrop-blur-md border border-ink-700 text-slate-200 hover:border-brand-500'
               }`}
             >
               <BarChart3 size={18} />
@@ -736,25 +737,25 @@ export default function HistoryPage() {
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-100 text-red-600 px-5 py-3 rounded-2xl text-sm font-bold">
+          <div className="rounded-2xl border border-red-700/60 bg-red-950/50 px-5 py-3 text-sm font-bold text-red-300">
             {error}
           </div>
         )}
 
         {loading && (
-          <div className="bg-white border border-slate-200 px-5 py-3 rounded-2xl text-sm font-bold text-slate-500">
+          <div className="bg-ink-900/80 backdrop-blur-md border border-ink-700 px-5 py-3 rounded-2xl text-sm font-bold text-slate-500">
             Loading history...
           </div>
         )}
 
         {compareMode && (
-          <div className="bg-white rounded-[2rem] p-8 border border-slate-200 shadow-xl shadow-slate-200/50 animate-in fade-in zoom-in duration-500">
+          <div className="bg-ink-900/80 backdrop-blur-md rounded-[2rem] p-8 border border-ink-700 shadow-xl shadow-slate-200/50 animate-in fade-in zoom-in duration-500">
             <div className="flex items-center gap-3 mb-8">
-              <div className="p-2 bg-brand-50 rounded-xl">
-                <Activity size={20} className="text-brand-600" />
+              <div className="p-2 bg-brand-500/10 rounded-xl">
+                <Activity size={20} className="text-brand-400" />
               </div>
               <div>
-                <h3 className="font-bold text-slate-800 text-lg">
+                <h3 className="font-bold text-slate-100 text-lg">
                   {selectedComparisonKind === 'timeseries' ? 'Time-Series Growth Comparison' : 'Yield Record Comparison'}
                 </h3>
                 <p className="text-xs font-bold text-slate-400">
@@ -773,7 +774,8 @@ export default function HistoryPage() {
                       <YAxis fontSize={11} tickLine={false} axisLine={false} dx={-10} unit=" kg/m2" />
                       <Tooltip
                         formatter={(value) => [`${formatNumber(value)} kg/m2`, 'Final Yield']}
-                        contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}
+                        contentStyle={{ background: '#0a1a12', border: '1px solid #1a3d2a', borderRadius: '20px', color: '#e2e8f0' }}
+                        labelStyle={{ color: '#94a3b8' }}
                       />
                       <Line
                         type="monotone"
@@ -793,13 +795,13 @@ export default function HistoryPage() {
                     const difference = typeof comparisonBaseline === 'number' ? record.output - comparisonBaseline : 0;
                     const sign = difference > 0 ? '+' : '';
                     return (
-                      <div key={record.id} className="border border-slate-100 rounded-2xl p-4 bg-slate-50/60">
+                      <div key={record.id} className="border border-ink-700/60 rounded-2xl p-4 bg-ink-850/60/60">
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <p className="text-sm font-black text-slate-800">{record.label}</p>
+                            <p className="text-sm font-black text-slate-100">{record.label}</p>
                             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{record.variety}</p>
                           </div>
-                          <p className="text-lg font-black text-brand-700 tabular-nums">{formatNumber(record.output)}</p>
+                          <p className="text-lg font-black text-brand-400 tabular-nums">{formatNumber(record.output)}</p>
                         </div>
                         <p className="mt-2 text-xs font-bold text-slate-500">
                           {record === yieldChartData[0] ? 'Baseline record' : `${sign}${formatNumber(difference)} kg/m2 vs baseline`}
@@ -836,8 +838,8 @@ export default function HistoryPage() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                   {timeSeriesComparisonRecords.map(record => (
-                    <div key={record.id} className="border border-slate-100 rounded-2xl p-4 bg-slate-50/60">
-                      <p className="text-sm font-black text-slate-800">{record.name || new Date(record.time).toLocaleTimeString()}</p>
+                    <div key={record.id} className="border border-ink-700/60 rounded-2xl p-4 bg-ink-850/60/60">
+                      <p className="text-sm font-black text-slate-100">{record.name || new Date(record.time).toLocaleTimeString()}</p>
                       <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-3">Time-Series</p>
                       <div className="space-y-2">
                         <DetailItem label="Final Height" value={`${formatNumber(record.finalPlantHeight)} cm`} />
@@ -849,7 +851,7 @@ export default function HistoryPage() {
                 </div>
               </div>
             ) : (
-              <div className="h-64 flex flex-col items-center justify-center border-2 border-dashed border-slate-100 rounded-[2rem] text-slate-400 bg-slate-50/50">
+              <div className="h-64 flex flex-col items-center justify-center border-2 border-dashed border-ink-700/60 rounded-[2rem] text-slate-400 bg-ink-850/60/50">
                 <Info size={32} className="mb-3 opacity-30" />
                 <p className="font-medium">Select at least two records of the same type to compare results</p>
                 {selectedIndices.length > 0 && (
@@ -870,14 +872,14 @@ export default function HistoryPage() {
               placeholder="Search records..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-12 pr-4 py-3.5 bg-white border border-slate-200 rounded-2xl outline-none text-sm focus:ring-4 focus:ring-brand-50 shadow-sm"
+              className="w-full pl-12 pr-4 py-3.5 bg-ink-900/80 backdrop-blur-md border border-ink-700 rounded-2xl outline-none text-sm focus:ring-4 focus:ring-brand-50 shadow-sm"
             />
           </div>
           <div className="relative">
             <select
               value={filterType}
               onChange={(e) => setFilterType(e.target.value)}
-              className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-2xl text-sm outline-none appearance-none cursor-pointer focus:ring-4 focus:ring-brand-50 shadow-sm"
+              className="w-full px-4 py-3.5 bg-ink-900/80 backdrop-blur-md border border-ink-700 rounded-2xl text-sm outline-none appearance-none cursor-pointer focus:ring-4 focus:ring-brand-50 shadow-sm"
             >
               {filterOptions.map(option => <option key={option} value={option}>{option}</option>)}
             </select>
@@ -885,17 +887,17 @@ export default function HistoryPage() {
           </div>
           <button
             onClick={() => setSortConfig({ key: 'output', direction: sortConfig.direction === 'asc' ? 'desc' : 'asc' })}
-            className="flex items-center justify-center gap-2 px-4 py-3.5 bg-white border border-slate-200 rounded-2xl text-sm font-bold text-slate-700 hover:bg-slate-50 shadow-sm"
+            className="flex items-center justify-center gap-2 px-4 py-3.5 bg-ink-900/80 backdrop-blur-md border border-ink-700 rounded-2xl text-sm font-bold text-slate-200 hover:bg-ink-850/60 shadow-sm"
           >
-            <ArrowUpDown size={16} className="text-brand-600" /> Sort by Result
+            <ArrowUpDown size={16} className="text-brand-400" /> Sort by Result
           </button>
         </div>
 
-        <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-ink-900/80 backdrop-blur-md rounded-[2.5rem] border border-ink-700 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-50/50 border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-widest">
+                <tr className="bg-ink-850/60/50 border-b border-ink-700/60 text-[11px] font-bold text-slate-400 uppercase tracking-widest">
                   {compareMode && <th className="p-6 w-12 text-center">Sel</th>}
                   <th className="p-6">Basic Info</th>
                   <th className="p-6">Type</th>
@@ -909,7 +911,7 @@ export default function HistoryPage() {
                     const canCompareItem = canSelectForComparison(item, selectedRecords);
                     return (
                     <React.Fragment key={item.originalIndex}>
-                      <tr className={`group transition-all hover:bg-slate-50/60 ${selectedIndices.includes(item.originalIndex) ? 'bg-brand-50/30' : ''}`}>
+                      <tr className={`group transition-all hover:bg-ink-850/60/60 ${selectedIndices.includes(item.originalIndex) ? 'bg-brand-500/10/30' : ''}`}>
                         {compareMode && (
                           <td className="p-6 text-center">
                             <input
@@ -924,15 +926,15 @@ export default function HistoryPage() {
                                 );
                               }}
                               title={canCompareItem ? 'Select record for comparison' : 'Select records of the same type for comparison'}
-                              className="w-5 h-5 rounded-lg border-slate-300 text-brand-600 focus:ring-brand-500 cursor-pointer disabled:cursor-not-allowed disabled:opacity-30"
+                              className="w-5 h-5 rounded-lg border-slate-300 text-brand-400 focus:ring-brand-500 cursor-pointer disabled:cursor-not-allowed disabled:opacity-30"
                             />
                           </td>
                         )}
                         <td className="p-6">
                           <div className="flex flex-col">
                             <div className="flex items-center gap-2">
-                              <span className="font-bold text-slate-900 text-base">{item.name || 'Simulation Record'}</span>
-                              <button onClick={() => handleRename(item.originalIndex, item.name)} className="opacity-0 group-hover:opacity-100 p-1 text-slate-300 hover:text-brand-600 transition-opacity">
+                              <span className="font-bold text-slate-50 text-base">{item.name || 'Simulation Record'}</span>
+                              <button onClick={() => handleRename(item.originalIndex, item.name)} className="opacity-0 group-hover:opacity-100 p-1 text-slate-600 hover:text-brand-400 transition-opacity">
                                 <Edit3 size={14} />
                               </button>
                             </div>
@@ -942,7 +944,7 @@ export default function HistoryPage() {
                           </div>
                         </td>
                         <td className="p-6">
-                          <span className="px-3 py-1 rounded-xl text-[11px] font-extrabold bg-slate-100 text-slate-600 border border-slate-200 tracking-tight">
+                          <span className="px-3 py-1 rounded-xl text-[11px] font-extrabold bg-ink-850/80 text-slate-600 border border-ink-700 tracking-tight">
                             {item.recordType.toUpperCase()}
                           </span>
                         </td>
@@ -953,11 +955,11 @@ export default function HistoryPage() {
                           <div className="flex items-center justify-end gap-2">
                             <button
                               onClick={() => setExpandedRow(expandedRow === item.originalIndex ? null : item.originalIndex)}
-                              className={`p-2.5 rounded-xl transition-all ${expandedRow === item.originalIndex ? 'bg-brand-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-100 hover:text-brand-600'}`}
+                              className={`p-2.5 rounded-xl transition-all ${expandedRow === item.originalIndex ? 'bg-brand-600 text-white shadow-lg' : 'text-slate-400 hover:bg-ink-850/80 hover:text-brand-400'}`}
                             >
                               {expandedRow === item.originalIndex ? <EyeOff size={18} /> : <Eye size={18} />}
                             </button>
-                            <button onClick={() => handleDelete(item.originalIndex)} className="p-2.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
+                            <button onClick={() => handleDelete(item.originalIndex)} className="p-2.5 text-slate-600 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
                               <Trash2 size={18} />
                             </button>
                           </div>
@@ -969,7 +971,7 @@ export default function HistoryPage() {
                           <td colSpan={compareMode ? 5 : 4} className="p-8">
                             <div className="grid grid-cols-2 lg:grid-cols-4 gap-8 animate-in fade-in slide-in-from-top-4 duration-500">
                               <div className="space-y-4">
-                                <div className="flex items-center gap-2 text-xs font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">
+                                <div className="flex items-center gap-2 text-xs font-black text-slate-400 uppercase tracking-widest border-b border-ink-700/60 pb-2">
                                   <Thermometer size={14} className="text-brand-500" /> Core Inputs
                                 </div>
                                 <div className="space-y-2">
@@ -981,7 +983,7 @@ export default function HistoryPage() {
                               </div>
 
                               <div className="space-y-4">
-                                <div className="flex items-center gap-2 text-xs font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">
+                                <div className="flex items-center gap-2 text-xs font-black text-slate-400 uppercase tracking-widest border-b border-ink-700/60 pb-2">
                                   <Sun size={14} className="text-orange-500" /> Environment
                                 </div>
                                 <div className="space-y-2">
@@ -993,7 +995,7 @@ export default function HistoryPage() {
                               </div>
 
                               <div className="space-y-4">
-                                <div className="flex items-center gap-2 text-xs font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">
+                                <div className="flex items-center gap-2 text-xs font-black text-slate-400 uppercase tracking-widest border-b border-ink-700/60 pb-2">
                                   <Wind size={14} className="text-blue-500" /> Treatment
                                 </div>
                                 <div className="space-y-2">
@@ -1004,9 +1006,9 @@ export default function HistoryPage() {
                                 </div>
                               </div>
 
-                              <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm flex flex-col justify-center items-center text-center space-y-2">
-                                <div className="p-3 bg-brand-50 rounded-full">
-                                  <Activity size={24} className="text-brand-600" />
+                              <div className="bg-ink-900/80 backdrop-blur-md rounded-3xl p-5 border border-ink-700/60 shadow-sm flex flex-col justify-center items-center text-center space-y-2">
+                                <div className="p-3 bg-brand-500/10 rounded-full">
+                                  <Activity size={24} className="text-brand-400" />
                                 </div>
                                 <RecordDetailSummary item={item} />
                               </div>
