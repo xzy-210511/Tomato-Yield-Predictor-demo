@@ -1,10 +1,37 @@
 # Tomato Yield Predictor
 
-A full-stack tomato yield prediction project built with Spring Boot, React, Vite, and a Python model service.
+Tomato Yield Predictor is a full-stack final prototype for greenhouse tomato prediction and growth simulation. The application combines a React + Vite frontend, a Spring Boot backend, and a Python FastAPI model service.
 
-Users enter greenhouse and crop-management data in the web UI. The frontend sends the request to Spring Boot, Spring Boot forwards it to the Python model API, and the predicted yield is returned to the browser.
+Users can:
 
-## Stack
+- run tomato yield prediction from greenhouse and crop-management inputs
+- run time-series growth prediction for plant height, leaf count, and nutrient-solution needs
+- run an integrated prediction workflow that combines yield and growth model outputs
+- register and log in as a prototype user
+- save simulation records and compare previous results on the History page
+
+No public live deployment URL is currently provided. The prototype is intended to run locally.
+
+## Project Structure
+
+```text
+Tomato-Yield-Predictor-demo/
+  frontend/                         React + Vite frontend source
+  frontend/public/models/           3D tomato model used by the UI
+  model_service/                    Python FastAPI service for model APIs
+  model integration/                Integrated yield + time-series model files
+  src/main/java/                    Spring Boot backend source code
+  src/main/resources/db/migration/  Flyway database migrations
+  src/main/resources/static/        Built frontend served by Spring Boot
+  timeseries prediction/            Time-series data cleaning/training/prediction code
+  weekly growth prediction/         Weekly growth experiment code and dataset
+  docker-compose.yml                Optional local PostgreSQL service
+  start-services.cmd                Windows one-command startup script
+  start-services.ps1                PowerShell startup implementation
+  pom.xml                           Maven / Spring Boot configuration
+```
+
+## Main Technologies
 
 - Java 21
 - Spring Boot 3.5.13
@@ -12,45 +39,20 @@ Users enter greenhouse and crop-management data in the web UI. The frontend send
 - Vite 5
 - Python 3.12
 - FastAPI
-- scikit-learn / pandas / numpy
-- H2 for local development
+- scikit-learn, pandas, NumPy, Joblib
+- H2 database for simple local runs
+- PostgreSQL for optional persistent local storage
 
-## Project Structure
+## System Requirements
 
-```text
-Tomato-Yield-Predictor-demo/
-  frontend/                    React + Vite source
-  model_service/               Python FastAPI model service
-  src/main/java/               Spring Boot backend code
-  src/main/resources/static/   Frontend files served by Spring Boot
-  start-services.cmd           One-click startup entry for Windows
-  start-services.ps1           PowerShell startup script
-  pom.xml                      Maven / Spring Boot config
-```
+Install these before running the project:
 
-## What Runs Where
+- Java JDK 21: https://adoptium.net/
+- Python 3.12: https://www.python.org/downloads/
+- Node.js 20+ and npm: https://nodejs.org/
+- Docker Desktop, optional for PostgreSQL: https://www.docker.com/products/docker-desktop/
 
-- `5173` or `5174`: Vite development server
-- `8080`: Spring Boot backend and packaged frontend
-- `8001`: Python model service
-
-Request flow:
-
-```text
-Browser -> Spring Boot (/api/predict) -> Python FastAPI (/predict) -> Spring Boot -> Browser
-```
-
-When using Vite dev mode, the frontend proxies `/api` to `http://localhost:8080`.
-
-## Environment Requirements
-
-Install these first:
-
-- JDK 21
-- Python 3.12
-- Node.js 20+ and npm
-
-Recommended checks:
+Check versions:
 
 ```powershell
 java -version
@@ -59,24 +61,7 @@ node -v
 npm -v
 ```
 
-## Quick Start
-
-### 1. Clone the repository
-
-```powershell
-git clone <your-repository-url>
-cd Tomato-Yield-Predictor-demo
-```
-
-### 2. Install frontend dependencies
-
-```powershell
-cd frontend
-npm install
-cd ..
-```
-
-### 3. Run the project with one command
+## Quick Start on Windows
 
 From the project root:
 
@@ -84,27 +69,55 @@ From the project root:
 .\start-services.cmd
 ```
 
-What this script does:
+The script will:
 
-- checks for Python on the machine
-- creates `model_service/.venv` if it does not exist
-- recreates the virtual environment if it is incomplete
-- installs Python dependencies from `model_service/requirements.txt`
-- starts the Python model service on `127.0.0.1:8001`
-- starts Spring Boot on `localhost:8080`
-- opens the application in the browser
+- create `model_service/.venv` if it does not exist
+- install frontend npm packages if Vite is missing
+- build the React frontend
+- copy built frontend files into `src/main/resources/static`
+- install Python dependencies from `model_service/requirements.txt`
+- prepare cleaned time-series data if needed
+- train the time-series model if needed
+- start the Python model service on `http://127.0.0.1:8001`
+- start Spring Boot on `http://localhost:8080`
+- open the application in the browser
 
-Open:
+The first run can take longer because it may install dependencies and train model files.
+
+Open the app at:
 
 ```text
 http://localhost:8080/#/
 ```
 
-## Manual Startup
+## Manual Compile and Run
 
-Use this if you want to run each service separately.
+Use these steps if you want to run each service separately.
 
-### Start the Python model service
+### 1. Install and Build the Frontend
+
+```powershell
+cd frontend
+npm install
+npm run build
+cd ..
+```
+
+Copy the latest build into Spring Boot static resources:
+
+```powershell
+Remove-Item -Path .\src\main\resources\static\assets\* -Force
+Copy-Item -Path .\frontend\dist\index.html -Destination .\src\main\resources\static\index.html -Force
+Copy-Item -Path .\frontend\dist\assets\* -Destination .\src\main\resources\static\assets -Force
+```
+
+If `frontend/dist/models/` exists, copy it to:
+
+```text
+src/main/resources/static/models/
+```
+
+### 2. Start the Python Model Service
 
 ```powershell
 cd model_service
@@ -113,76 +126,103 @@ py -m venv .venv
 .\.venv\Scripts\python.exe -m uvicorn api:app --host 127.0.0.1 --port 8001
 ```
 
-### Start Spring Boot
+Health check:
 
-Open another terminal in the project root:
+```text
+http://127.0.0.1:8001/health
+```
+
+### 3. Start Spring Boot
+
+Open another terminal from the project root:
 
 ```powershell
 $env:MAVEN_USER_HOME="$PWD\.m2"
 .\mvnw.cmd spring-boot:run
 ```
 
-Open:
+Then open:
 
 ```text
 http://localhost:8080/#/
 ```
 
+## Development Mode
+
+Use Vite when editing files under `frontend/src`:
+
+```powershell
+cd frontend
+npm run dev
+```
+
+Vite usually runs at:
+
+```text
+http://localhost:5173/
+```
+
+If port `5173` is busy, Vite may use another port such as `5174`. In development mode, Vite proxies `/api` requests to Spring Boot at `http://localhost:8080`.
+
+## Application Flow
+
+```text
+Browser
+  -> Spring Boot backend /api/...
+  -> Python FastAPI model service
+  -> Spring Boot backend
+  -> Browser
+```
+
+Default local ports:
+
+- `8080`: Spring Boot backend and packaged frontend
+- `8001`: Python FastAPI model service
+- `5173` or `5174`: Vite development server
+
+## Features
+
+### Yield Prediction
+
+The yield workflow uses greenhouse and crop-management inputs such as temperature, humidity, CO2, light intensity, photoperiod, irrigation, fertilizer levels, pest severity, pH, and tomato variety.
+
+### Time-Series Growth Prediction
+
+The time-series workflow predicts plant growth over time, including plant height, leaf count, and nutrient-solution recommendation outputs.
+
+### Integrated Prediction
+
+The integrated workflow calls `/api/predict/integrated`, which forwards inputs to the Python integrated model in `model integration/`.
+
+### User Login and History
+
+Users can register or log in through the frontend. After a logged-in user runs a prediction, the frontend saves a simulation record through `/api/records`. Saved records can be viewed, renamed, deleted, and compared on the History page.
+
+Important History Page note: if the History page has no data, please log in or register first, then run a prediction. Predictions can still run without login, but they will not be saved to the History page unless a user is logged in.
+
 ## Database
 
-The application now has a minimal prediction-history database and a minimal user database for login/register.
-
-By default, local runs use an in-memory H2 database so the app can still start without installing PostgreSQL. For a persistent database, use the PostgreSQL profile.
-
-Important: H2 is in-memory in the default profile. Registered users and prediction rows are lost when Spring Boot stops. Use PostgreSQL if you want users and records to remain after restart.
-
-### Stored tables
-
-Flyway creates these tables automatically when Spring Boot starts:
+By default, the app uses an in-memory H2 database:
 
 ```text
-prediction_records
-users
-simulation_records
+jdbc:h2:mem:demo
 ```
 
-`prediction_records` stores the submitted greenhouse inputs, the predicted yield, a model version label, and the creation time.
+This requires no external setup, but user accounts and saved records are lost when Spring Boot stops.
 
-`users` stores registered users for the login/register page:
+Flyway creates these tables:
 
-```text
-id
-username
-password
-created_at
-```
+- `prediction_records`
+- `users`
+- `simulation_records`
 
-The current implementation stores passwords as plain text to keep the prototype simple. This is only suitable for local demo use. Before real deployment, replace this with password hashing such as BCrypt.
-
-`simulation_records` stores the history shown on the History page:
-
-```text
-id
-user_id
-record_name
-record_type
-input_json
-output_json
-summary_value
-created_at
-```
-
-`user_id` references `users.id`. If a user is deleted, their simulation records are deleted as well. The `input_json` and `output_json` columns allow the same table to store both yield predictions and time-series predictions.
-
-### Start PostgreSQL with Docker
-
-From the project root:
+For persistent local storage, start PostgreSQL:
 
 ```powershell
 docker compose up -d postgres
 ```
 
-The default local PostgreSQL settings are:
+Default PostgreSQL settings:
 
 ```text
 database: tomato_yield
@@ -191,9 +231,7 @@ password: tomato_app
 port: 5432
 ```
 
-### Run Spring Boot against PostgreSQL
-
-Start the Python service first, then start Spring Boot with the `postgres` profile:
+Run Spring Boot with PostgreSQL:
 
 ```powershell
 $env:SPRING_PROFILES_ACTIVE="postgres"
@@ -203,286 +241,215 @@ $env:DB_PASSWORD="tomato_app"
 .\mvnw.cmd spring-boot:run
 ```
 
-This mode persists registered users and prediction records in PostgreSQL.
-
-When `/api/predict` returns successfully, Spring Boot saves one row into `prediction_records`.
-
-When `/api/auth/register` returns successfully, Spring Boot saves one row into `users`.
-
-When a logged-in user runs a yield or time-series prediction, the frontend saves one row into `simulation_records` through `/api/records`. If the user is not logged in, the prediction still runs but history is not saved.
-
-### History page behavior
-
-The History page reads saved rows from `simulation_records`.
-
-Yield prediction records show:
-
-- record name and creation time
-- tomato variety as the record type
-- final predicted yield in `kg/m2`
-- expanded input details
-
-Time-series records show:
-
-- final plant height in `cm`
-- final leaf count
-- total nutrient solution supply in `L/plant`
-- expanded input details and the same summary values
-
-Comparison mode supports two separate workflows:
-
-- select two or more yield records to compare final predicted yield
-- select two or more time-series records to compare plant height, leaf count, and cumulative nutrient solution curves
-
-The first selected record decides the comparison type. After selecting a yield record, only yield records can be added to the current comparison. After selecting a time-series record, only time-series records can be added. Exit comparison mode to start a different comparison type.
-
-### Manual history checks
-
-Use Vite at `http://localhost:5173/` while checking frontend behavior.
-
-1. Register or log in.
-2. Run and save at least two yield predictions.
-3. Open History and confirm the yield rows show `kg/m2` results.
-4. Click `Compare Analytics`, select two yield rows, and confirm the yield comparison chart and baseline difference cards appear.
-5. Exit comparison mode.
-6. Run and save at least two time-series forecasts.
-7. Open History and confirm the time-series rows show final height, final leaves, and total NS.
-8. Click `Compare Analytics`, select two time-series rows, and confirm the three comparison charts appear: plant height, leaf count, and cumulative NS supply.
-9. Refresh the browser and reopen History to confirm the saved records still load from the backend database.
-
-### Start the Vite development server
-
-Use this when working on files under `frontend/src` and you want hot reload.
-
-```powershell
-cd frontend
-npm run dev
-```
-
-Open the URL shown by Vite, usually:
-
-```text
-http://localhost:5173/
-```
-
-If `5173` is already in use, Vite will move to another port such as `5174`.
-
-## Development Notes
-
-### When to use Vite vs Spring Boot
-
-Use Vite if:
-
-- you are editing `frontend/src`
-- you want instant frontend hot reload
-
-Use Spring Boot at `8080` if:
-
-- you want to test the packaged version of the app
-- you want the full backend + frontend integration through the Spring Boot server
-
-### Important difference
-
-- `http://localhost:5173` or `5174`: Vite development frontend
-- `http://localhost:8080`: Spring Boot serving built static frontend files
-
-If you only change `frontend/src` but do not rebuild, Spring Boot will still serve the old packaged frontend.
-
-## Rebuild Frontend for Spring Boot
-
-If you want Spring Boot to use the latest frontend changes, rebuild the frontend and copy the generated files into `src/main/resources/static`.
-
-### Build the frontend
-
-```powershell
-cd frontend
-npm run build
-cd ..
-```
-
-### Copy the latest build into Spring Boot static resources
-
-```powershell
-Remove-Item -Path .\src\main\resources\static\assets\* -Force
-Copy-Item -Path .\frontend\dist\index.html -Destination .\src\main\resources\static\index.html -Force
-Copy-Item -Path .\frontend\dist\assets\* -Destination .\src\main\resources\static\assets -Force
-```
-
-After that, restart Spring Boot and refresh `http://localhost:8080/#/`.
-
-## Deployment Notes
-
-This project is structured as three parts:
-
-- React frontend
-- Spring Boot backend
-- Python model service
-
-### Local deployment
-
-The simplest local deployment is:
-
-1. install Java, Python, Node.js
-2. run `npm install` in `frontend`
-3. run `.\start-services.cmd`
-
-### Deploying for other users or another machine
-
-The new machine must have:
-
-- Java 21
-- Python 3.12
-- Node.js + npm
-
-Then:
-
-1. clone the repository
-2. run `npm install` inside `frontend`
-3. run `.\start-services.cmd`
-
-The script will handle Python virtual environment setup automatically.
-
-### Production-style deployment idea
-
-For a more production-oriented setup:
-
-- build the frontend with `npm run build`
-- copy the built assets into `src/main/resources/static`
-- package or run the Spring Boot app
-- run the Python model service separately on the configured host and port
-
-At the moment, the backend expects the Python service here:
-
-```text
-http://127.0.0.1:8001
-```
-
-This is configured in:
-
-- [src/main/resources/application.properties](src/main/resources/application.properties)
-
-If you move the Python service elsewhere, update:
-
-```properties
-python.api.base-url=http://127.0.0.1:8001
-```
-
 ## API Endpoints
 
-### Spring Boot
+Spring Boot endpoints:
 
 ```text
-POST /api/predict
-POST /api/auth/register
-POST /api/auth/login
-POST /api/records
-GET  /api/records?userId={userId}
-PATCH /api/records/{id}?userId={userId}
+POST   /api/predict
+POST   /api/predict/timeseries
+POST   /api/predict/integrated
+POST   /api/auth/register
+POST   /api/auth/login
+POST   /api/records
+GET    /api/records?userId={userId}
+PATCH  /api/records/{id}?userId={userId}
 DELETE /api/records/{id}?userId={userId}
 ```
 
-`/api/auth/register` creates a new user if the username is not already taken.
-
-`/api/auth/login` checks the submitted username and password against the `users` table.
-
-The frontend stores the logged-in user's `username` and `userId` in `localStorage` after a successful login or registration. There is currently no token, session, or Spring Security layer.
-
-`/api/records` stores and manages saved simulation history for the History page. The current implementation uses `userId` as a request parameter to scope records to a user.
-
-- `POST /api/records`: create a saved history record
-- `GET /api/records?userId={userId}`: list records for one user
-- `PATCH /api/records/{id}?userId={userId}`: rename one record
-- `DELETE /api/records/{id}?userId={userId}`: delete one record
-
-### Python model service
+Python FastAPI endpoints:
 
 ```text
 GET  /health
 POST /predict
+POST /predict/timeseries
+POST /predict/integrated
 ```
 
-## Example Request
+## Testing
 
-```json
-{
-  "avgTemperatureC": 25,
-  "minTemperatureC": 24,
-  "maxTemperatureC": 27,
-  "humidityPercent": 70,
-  "co2Ppm": 800,
-  "lightIntensityLux": 30000,
-  "photoperiodHours": 12,
-  "irrigationMm": 7,
-  "fertilizerNKgHa": 140,
-  "fertilizerPKgHa": 60,
-  "fertilizerKKgHa": 140,
-  "pestSeverity": 1,
-  "pH": 6.5,
-  "variety": "Roma"
-}
-```
-
-## Troubleshooting
-
-### `start-services.cmd` not found
-
-Make sure you are in the project root:
+Run backend tests:
 
 ```powershell
-cd path\to\Tomato-Yield-Predictor-demo
-.\start-services.cmd
+$env:MAVEN_USER_HOME="$PWD\.m2"
+.\mvnw.cmd test
 ```
 
-### `npm run dev` says `package.json` not found
-
-Run it inside `frontend`:
+Build the frontend:
 
 ```powershell
 cd frontend
-npm run dev
+npm run build
 ```
 
-### `Port 5173 is in use`
+The current frontend project does not define a separate automated test script.
 
-This is normal. Vite will move to another port automatically.
+## Third-Party Software and Libraries
 
-### Python virtual environment errors
+Backend:
 
-The startup script now recreates a broken `.venv` automatically. If needed, you can still remove it manually:
+- Spring Boot: https://spring.io/projects/spring-boot
+- Spring Web: https://docs.spring.io/spring-framework/reference/web/webmvc.html
+- Spring Data JPA: https://spring.io/projects/spring-data-jpa
+- Spring Validation: https://docs.spring.io/spring-framework/reference/core/validation.html
+- H2 Database: https://www.h2database.com/
+- PostgreSQL JDBC Driver: https://jdbc.postgresql.org/
+- Flyway: https://flywaydb.org/
+- Maven Wrapper: https://maven.apache.org/wrapper/
+
+Frontend:
+
+- React: https://react.dev/
+- Vite: https://vitejs.dev/
+- React Router: https://reactrouter.com/
+- Tailwind CSS: https://tailwindcss.com/
+- Three.js: https://threejs.org/
+- React Three Fiber: https://docs.pmnd.rs/react-three-fiber
+- Drei: https://github.com/pmndrs/drei
+- Recharts: https://recharts.org/
+- Lucide React: https://lucide.dev/
+- GSAP: https://gsap.com/
+
+Python:
+
+- FastAPI: https://fastapi.tiangolo.com/
+- Uvicorn: https://www.uvicorn.org/
+- pandas: https://pandas.pydata.org/
+- NumPy: https://numpy.org/
+- scikit-learn: https://scikit-learn.org/
+- Joblib: https://joblib.readthedocs.io/
+- Pydantic: https://docs.pydantic.dev/
+
+Optional infrastructure:
+
+- PostgreSQL Docker image: https://hub.docker.com/_/postgres
+
+## Data Sources and Model Files
+
+The project uses local datasets included in the repository. No public dataset URL is currently provided for the submitted data files.
+
+Yield model data:
+
+- `model_service/greenhouse_crop_yields.csv`
+- `model_service/tomato_cleaned.csv`
+- `model_service/tomato_step.csv`
+
+Time-series model data:
+
+- `timeseries prediction/ClimateTimeseries.xlsx`
+- `timeseries prediction/CropMeasurements.xlsx`
+- `timeseries prediction/DestructiveHarvest.xlsx`
+- `timeseries prediction/nsdataset.xlsx`
+
+Weekly growth experiment data:
+
+- `weekly growth prediction/DB_Mobile_Manual_Tomato.csv`
+
+Integrated model files:
+
+- `model integration/integrated_tomato_model.py`
+- `model integration/yield model/integrated_final_yield_model.joblib`
+- `model integration/yield model/integrated_final_yield_metrics.csv`
+- `model integration/yield model/greenhouse_crop_yields.csv`
+- `model integration/timeseries model/model_outputs/recursive_growth_forecaster.joblib`
+- `model integration/timeseries model/timeseries_model_metrics.csv`
+- `model integration/timeseries model/recursive_prediction_actual_comparison_summary.csv`
+
+Related model scripts:
+
+- `model_service/cleandata.py`
+- `model_service/predict_field_model.py`
+- `timeseries prediction/datacleaning.py`
+- `timeseries prediction/timeseries_train.py`
+- `timeseries prediction/predict_growth_model.py`
+- `weekly growth prediction/tomato_data_clean.py`
+- `weekly growth prediction/model_train.py`
+
+Additional learning reference:
+
+- `model_service/ref.md`
+
+## Security and Privacy Notes
+
+This is a prototype application. The current login implementation stores username and password values in the local database for demo use. It does not currently implement hashed passwords, server-side sessions, JWT, or HttpOnly cookie authentication.
+
+For a production version, password storage should be replaced with BCrypt or another suitable one-way password hashing approach, and the backend should derive user identity from authenticated server-side request state rather than trusting a frontend-provided `userId`.
+
+The prototype stores only the following user-related data:
+
+- username
+- password value for prototype login
+- prediction inputs
+- prediction outputs
+- saved simulation history metadata
+
+It does not collect email addresses, phone numbers, real names, or location data.
+
+## AI Use Declaration
+
+AI assistance was used during development. The repository currently includes an AI note at:
+
+- `model_service/ai.md`
+
+The final submission should also include the signed team coversheet, AI use declaration, and a list of AI sources/prompts used in code creation, as required by the assessment instructions.
+
+## Final Submission Checklist
+
+Submit the final prototype codebase as a compressed `.zip` archive.
+
+Include:
+
+- all source code in `frontend/`, `model_service/`, `model integration/`, `src/`, `timeseries prediction/`, and `weekly growth prediction/`
+- required datasets and model files listed above
+- `README.md`
+- `model_service/ai.md`
+- signed team coversheet
+- AI use declaration and AI prompt/source list
+- configuration files such as `pom.xml`, `docker-compose.yml`, `.env.example`, `start-services.cmd`, and `start-services.ps1`
+
+Exclude generated or local-only files:
+
+- `target/`
+- `.m2/`
+- `frontend/node_modules/`
+- `frontend/dist/`
+- `model_service/.venv/`
+- `__pycache__/`
+- `timeseries prediction/cleaned_data/`
+- `timeseries prediction/model_outputs/`
+- `.env`
+- installer files such as `.exe` or `.msi`
+- previous `.zip` archives
+
+## Troubleshooting
+
+If `vite` is not found, install frontend dependencies:
+
+```powershell
+cd frontend
+npm install
+cd ..
+```
+
+If the History page is empty, log in or register first, then run a prediction again. History records are saved only for logged-in users.
+
+If Spring Boot cannot contact Python, confirm the Python model service is running:
+
+```text
+http://127.0.0.1:8001/health
+```
+
+If frontend changes are not visible on `http://localhost:8080/#/`, rebuild the frontend and copy `frontend/dist` into `src/main/resources/static`, or use Vite development mode.
+
+If the Python virtual environment is broken, remove it and rerun the startup script:
 
 ```powershell
 Remove-Item -Recurse -Force .\model_service\.venv
 .\start-services.cmd
 ```
 
-### Frontend changes are not visible on `8080`
-
-You are probably viewing the Spring Boot packaged frontend, not Vite hot reload.
-
-Fix:
-
-1. run `npm run dev` in `frontend` for hot reload
-2. or rebuild and copy the frontend into `src/main/resources/static`
-
-### Spring Boot cannot contact Python
-
-Make sure the Python service is running:
+If PostgreSQL data does not persist, check Docker:
 
 ```powershell
-http://127.0.0.1:8001/health
+docker compose ps
 ```
-
-## Git Hygiene
-
-Generated and local-only files should not be committed:
-
-- `.m2/`
-- `target/`
-- `frontend/node_modules/`
-- `frontend/dist/`
-- `model_service/.venv/`
-- `__pycache__/`
-- `src/main/resources/static/assets/`
-- `python-installer.exe`
-
-Keep source code and configuration in Git, but avoid committing local caches and generated files.

@@ -4,6 +4,8 @@ $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $pythonServiceDir = Join-Path $projectRoot 'model_service'
 $frontendDir = Join-Path $projectRoot 'frontend'
 $frontendDistDir = Join-Path $frontendDir 'dist'
+$frontendPackageJson = Join-Path $frontendDir 'package.json'
+$frontendViteBin = Join-Path $frontendDir 'node_modules\.bin\vite.cmd'
 $staticDir = Join-Path $projectRoot 'src\main\resources\static'
 $staticAssetsDir = Join-Path $staticDir 'assets'
 $staticModelsDir = Join-Path $staticDir 'models'
@@ -62,6 +64,10 @@ if (-not (Test-Path $mavenWrapper)) {
 }
 
 if (Test-Path $frontendDir) {
+    if (-not (Test-Path $frontendPackageJson)) {
+        Write-Error "Frontend package.json not found at $frontendPackageJson"
+    }
+
     $npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
     $npmPath = $null
     if (-not $npmCommand) {
@@ -76,6 +82,11 @@ if (Test-Path $frontendDir) {
 
     if (-not $npmPath) {
         Write-Error 'npm not found. Please install Node.js 20+ and reopen your terminal.'
+    }
+
+    if (-not (Test-Path $frontendViteBin)) {
+        Write-Host 'Frontend dependencies not found. Installing npm packages ...'
+        & $npmPath install --prefix $frontendDir
     }
 
     Write-Host 'Building React frontend for Spring Boot static resources ...'
