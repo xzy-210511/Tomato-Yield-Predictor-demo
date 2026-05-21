@@ -11,7 +11,7 @@ def main() -> None:
         "ec": "EC6",
         "light": "high light",
         "start_day": 15,
-        "maturity_day": 66,
+        "forecast_days": 51,
         "variety": "Roma",
         "avg_temperature_C": 25,
         "min_temperature_C": 22,
@@ -26,13 +26,7 @@ def main() -> None:
         "fertilizer_K_kg_ha": 140,
         "pest_severity": 1,
         "soil_pH": 6.5,
-        "environment": {
-            "t_air_mean": 24.8,
-            "rh_mean": 68.5,
-            "co2_mean": 440.0,
-            "par_lamp_daily": 560.0,
-            "light_on_hours_daily": 8.0,
-        },
+        "par_lamp_daily": 560.0,
     }
 
     result = predict_integrated_tomato(sample_input)

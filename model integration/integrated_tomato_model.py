@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import importlib.util
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -21,16 +21,26 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
 ROOT = Path(__file__).resolve().parent
-TIMESERIES_DIR = ROOT / "timeseries model"
+TIMESERIES_DIR = ROOT.parent / "timeseries prediction"
 YIELD_DIR = ROOT / "yield model"
 YIELD_DATA_PATH = YIELD_DIR / "greenhouse_crop_yields.csv"
 YIELD_MODEL_PATH = YIELD_DIR / "integrated_final_yield_model.joblib"
 YIELD_METRICS_PATH = YIELD_DIR / "integrated_final_yield_metrics.csv"
 
-if str(TIMESERIES_DIR) not in sys.path:
-    sys.path.insert(0, str(TIMESERIES_DIR))
+def load_integrated_growth_predictor():
+    module_path = TIMESERIES_DIR / "predict_growth_model.py"
+    spec = importlib.util.spec_from_file_location(
+        "integrated_timeseries_predict_growth_model",
+        module_path,
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load time-series model from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.predict_growth
 
-from predict_growth_model import predict_growth
+
+predict_growth = load_integrated_growth_predictor()
 
 TARGET = "yield_kg_per_m2"
 
@@ -185,11 +195,18 @@ def map_to_growth_input(data: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(environment, dict):
         environment = {}
 
+    start_day = int(get_value(data, "start_day", "days_after_transplant", default=0))
+    forecast_days = get_value(data, "forecast_days", default=None)
+    if forecast_days is not None:
+        maturity_day = start_day + int(forecast_days)
+    else:
+        maturity_day = int(get_value(data, "maturity_day", default=66))
+
     return {
         "ec": data["ec"],
         "light": data["light"],
-        "start_day": int(get_value(data, "start_day", "days_after_transplant", default=0)),
-        "maturity_day": int(get_value(data, "maturity_day", default=66)),
+        "start_day": start_day,
+        "maturity_day": maturity_day,
         "environment": {
             "t_air_mean": float(
                 get_value(

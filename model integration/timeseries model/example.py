@@ -7,11 +7,13 @@ from predict_growth_model import predict_growth
 
 
 def main() -> None:
+    start_day = 15
+    forecast_days = 51
     sample_input = {
         "ec": "EC6",
         "light": "high light",
-        "start_day": 15,
-        "maturity_day": 66,
+        "start_day": start_day,
+        "maturity_day": start_day + forecast_days,
         "environment": {
             "t_air_mean": 24.8,
             "rh_mean": 68.5,

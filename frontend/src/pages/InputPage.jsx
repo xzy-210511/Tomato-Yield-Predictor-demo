@@ -13,7 +13,6 @@ import {
   Leaf,
   RefreshCw,
   Sun,
-  Thermometer,
   TrendingUp,
   User,
   Wind,
@@ -31,7 +30,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { predictGrowth, predictTimeSeries } from '../api/predict'
+import { predictGrowth, predictIntegrated, predictTimeSeries } from '../api/predict'
 import { createRecord } from '../api/records'
 import { analyzeYieldInput } from '../lib/advisor'
 import { analyzeTimeSeriesInput } from '../lib/timeSeriesAdvisor'
@@ -61,7 +60,9 @@ const FIELD_INFO = {
   pH: 'Soil/solution pH. Ideal: 6.0-6.8.',
   variety: 'Tomato variety. Different types have varying yield potentials.',
   tsStartDay: 'Day after transplant where the recursive forecast begins.',
-  tsMaturityDay: 'Last day after transplant to forecast to.',
+  forecastDays: 'Number of future days to forecast from the selected start day.',
+  startDay: 'Day after transplant where the recursive forecast begins.',
+  parLampDaily: 'Daily lamp PAR used for the forecast window.',
   tsEc: 'EC treatment label used by the time-series model.',
   tsLight: 'Light treatment label used by the time-series model.',
   tsTAirMean: 'Locked daily mean air temperature used for all future days.',
@@ -86,6 +87,11 @@ const INITIAL_FORM = {
   pestSeverity: '1',
   pH: '6.5',
   variety: 'Roma',
+  startDay: '15',
+  forecastDays: '51',
+  ec: 'EC6',
+  light: 'high light',
+  parLampDaily: '560',
 }
 
 const INITIAL_TS_FORM = {
@@ -100,19 +106,74 @@ const INITIAL_TS_FORM = {
   lightOnHoursDaily: '8',
 }
 
+const YIELD_FIELD_KEYS = [
+  'avgTemperatureC',
+  'minTemperatureC',
+  'maxTemperatureC',
+  'humidityPercent',
+  'co2Ppm',
+  'lightIntensityLux',
+  'photoperiodHours',
+  'irrigationMm',
+  'fertilizerNKgHa',
+  'fertilizerPKgHa',
+  'fertilizerKKgHa',
+  'pestSeverity',
+  'pH',
+]
+
 function buildYieldPayload(form) {
-  const payload = Object.fromEntries(
-    Object.entries(form).map(([key, value]) => [
-      key,
-      key === 'variety' ? value : parseFloat(value),
-    ])
-  )
+  const payload = { variety: form.variety }
+  YIELD_FIELD_KEYS.forEach(key => {
+    payload[key] = parseFloat(form[key])
+  })
 
   const hasInvalidNumber = Object.entries(payload).some(([key, value]) => (
     key !== 'variety' && !Number.isFinite(value)
   ))
 
   return hasInvalidNumber ? null : payload
+}
+
+function buildIntegratedPayload(form) {
+  const yieldPayload = buildYieldPayload(form)
+  if (!yieldPayload) return null
+
+  const startDay = parseInt(form.startDay, 10)
+  const forecastDays = parseInt(form.forecastDays, 10)
+  const parLampDaily = parseFloat(form.parLampDaily)
+  if (!Number.isFinite(startDay) || !Number.isFinite(forecastDays) || !Number.isFinite(parLampDaily)) {
+    return null
+  }
+
+  return {
+    ...yieldPayload,
+    startDay,
+    forecastDays,
+    ec: form.ec,
+    light: form.light,
+    parLampDaily,
+  }
+}
+
+function buildTimeSeriesFormFromIntegratedForm(form) {
+  const startDay = parseInt(form.startDay, 10)
+  const forecastDays = parseInt(form.forecastDays, 10)
+  const maturityDay = Number.isFinite(startDay) && Number.isFinite(forecastDays)
+    ? startDay + forecastDays
+    : parseInt(INITIAL_TS_FORM.maturityDay, 10)
+
+  return {
+    startDay: form.startDay,
+    maturityDay: String(maturityDay),
+    ec: form.ec,
+    light: form.light,
+    tAirMean: form.avgTemperatureC,
+    rhMean: form.humidityPercent,
+    co2Mean: form.co2Ppm,
+    parLampDaily: form.parLampDaily,
+    lightOnHoursDaily: form.photoperiodHours,
+  }
 }
 
 const PARAMETER_GROUPS = [
@@ -147,26 +208,13 @@ const PARAMETER_GROUPS = [
       { key: 'fertilizerKKgHa', label: 'Potassium (K)', unit: 'kg/ha', min: 0, max: 400, step: 1 },
     ],
   },
-]
-
-const TS_GROUPS = [
   {
-    title: 'Forecast Window',
-    icon: <Thermometer size={18} className="text-orange-500" />,
+    title: 'Forecast Setup',
+    icon: <TrendingUp size={18} className="text-cyan-500" />,
     fields: [
-      { key: 'startDay', infoKey: 'tsStartDay', label: 'Start Day', unit: 'DAT', min: 0, max: 66, step: 1 },
-      { key: 'maturityDay', infoKey: 'tsMaturityDay', label: 'Maturity Day', unit: 'DAT', min: 1, max: 90, step: 1 },
-    ],
-  },
-  {
-    title: 'Locked Environment',
-    icon: <Wind size={18} className="text-sky-500" />,
-    fields: [
-      { key: 'tAirMean', infoKey: 'tsTAirMean', label: 'Air Temp', unit: 'C', min: 10, max: 40, step: 0.1 },
-      { key: 'rhMean', infoKey: 'tsRhMean', label: 'Humidity', unit: '%', min: 20, max: 100, step: 0.1 },
-      { key: 'co2Mean', infoKey: 'tsCo2Mean', label: 'CO2', unit: 'ppm', min: 200, max: 2000, step: 10 },
-      { key: 'parLampDaily', infoKey: 'tsParLampDaily', label: 'Lamp PAR', unit: 'daily', min: 0, max: 2000, step: 10 },
-      { key: 'lightOnHoursDaily', infoKey: 'tsLightOnHoursDaily', label: 'Light Hours', unit: 'h', min: 0, max: 24, step: 0.5 },
+      { key: 'startDay', label: 'Start Day', unit: 'DAT', min: 0, max: 66, step: 1 },
+      { key: 'forecastDays', label: 'Forecast Days', unit: 'days', min: 1, max: 90, step: 1 },
+      { key: 'parLampDaily', label: 'Lamp PAR', unit: 'daily', min: 0, max: 2000, step: 10 },
     ],
   },
 ]
@@ -291,9 +339,7 @@ function summarizeTimeSeriesResponse(response) {
 
 export default function InputPage() {
   const [form, setForm] = useState(INITIAL_FORM)
-  const [timeSeriesForm, setTimeSeriesForm] = useState(INITIAL_TS_FORM)
   const [loading, setLoading] = useState(false)
-  const [timeSeriesLoading, setTimeSeriesLoading] = useState(false)
   const [bestYieldLoading, setBestYieldLoading] = useState(false)
   const [bestGrowthLoading, setBestGrowthLoading] = useState(false)
   const [error, setError] = useState('')
@@ -311,10 +357,10 @@ export default function InputPage() {
   const livePredictionRequestRef = useRef(0)
   const user = localStorage.getItem('user')
   const userId = localStorage.getItem('userId')
+  const integratedTimeSeriesForm = useMemo(() => buildTimeSeriesFormFromIntegratedForm(form), [form])
+  const displayedTimeSeriesForm = integratedTimeSeriesForm
 
   const updateField = (key, value) => setForm(prev => ({ ...prev, [key]: value }))
-  const updateTimeSeriesField = (key, value) =>
-    setTimeSeriesForm(prev => ({ ...prev, [key]: value }))
 
   useEffect(() => {
     if (viewMode !== '3d') {
@@ -436,11 +482,11 @@ export default function InputPage() {
   const timeSeriesAdvisorSuggestions = useMemo(() => {
     if (!timeSeriesResult?.predictions) return []
     return analyzeTimeSeriesInput(
-      timeSeriesForm,
+      displayedTimeSeriesForm,
       timeSeriesResult.predictions,
       trajectoryStats
     ).suggestions
-  }, [timeSeriesForm, timeSeriesResult, trajectoryStats])
+  }, [displayedTimeSeriesForm, timeSeriesResult, trajectoryStats])
 
   const timeSeriesSummary = useMemo(() => {
     if (timeSeriesChartData.length < 2) {
@@ -463,7 +509,7 @@ export default function InputPage() {
         color: 'emerald',
       }
     }
-    if (parseFloat(timeSeriesForm.co2Mean) < 450) {
+    if (parseFloat(displayedTimeSeriesForm.co2Mean) < 450) {
       return {
         label: 'CO2 Constraint',
         desc: 'The locked CO2 value is a likely limiting factor for future growth.',
@@ -477,7 +523,7 @@ export default function InputPage() {
       icon: <Gauge />,
       color: 'orange',
     }
-  }, [timeSeriesChartData, timeSeriesForm.co2Mean])
+  }, [timeSeriesChartData, displayedTimeSeriesForm.co2Mean])
 
   const saveRecord = async ({ recordType, input, output, summaryValue }) => {
     if (!userId) return
@@ -499,55 +545,46 @@ export default function InputPage() {
     setLoading(true)
     setError('')
     setResult(null)
+    setTimeSeriesResult(null)
     setBestYield(null)
+    setBestGrowth(null)
     try {
-      const payload = buildYieldPayload(form)
+      const payload = buildIntegratedPayload(form)
       if (!payload) {
         throw new Error('Please enter valid values before running the simulation.')
       }
-      const response = await predictGrowth(payload)
-      if (response && response.predicted_yield_kg_per_m2 !== undefined) {
-        setResult({ response, payload })
+      const response = await predictIntegrated(payload)
+      const predictedYieldValue = response?.final_yield_prediction?.yield_kg_per_m2
+      if (response && predictedYieldValue !== undefined && Array.isArray(response.predictions)) {
+        const yieldPayload = buildYieldPayload(form)
+        const yieldResponse = { predicted_yield_kg_per_m2: predictedYieldValue }
+        const timeSeriesPayload = buildTimeSeriesPayload(buildTimeSeriesFormFromIntegratedForm(form))
+
+        setResult({ response: yieldResponse, payload: yieldPayload })
+        setTimeSeriesResult(response)
+
         await saveRecord({
           recordType: 'yield',
-          input: payload,
-          output: response,
-          summaryValue: response.predicted_yield_kg_per_m2,
+          input: yieldPayload,
+          output: yieldResponse,
+          summaryValue: predictedYieldValue,
         })
-        handleFindBestYield(payload, response)
+        const summary = summarizeTimeSeriesResponse(response)
+        await saveRecord({
+          recordType: 'timeseries',
+          input: timeSeriesPayload,
+          output: { ...response, summary },
+          summaryValue: summary.finalPlantHeight,
+        })
+        handleFindBestYield(yieldPayload, yieldResponse)
+        handleFindBestGrowth(buildTimeSeriesFormFromIntegratedForm(form), response)
       } else {
-        throw new Error('Invalid response format.')
+        throw new Error('Invalid integrated response format.')
       }
     } catch (e) {
       setError(e.message || 'Simulation failed.')
     } finally {
       setLoading(false)
-    }
-  }
-
-  const handleTimeSeriesPredict = async () => {
-    setTimeSeriesLoading(true)
-    setError('')
-    setBestGrowth(null)
-    try {
-      const payload = buildTimeSeriesPayload(timeSeriesForm)
-      const response = await predictTimeSeries(payload)
-      if (!response || !Array.isArray(response.predictions)) {
-        throw new Error('Invalid time-series response format.')
-      }
-      setTimeSeriesResult(response)
-      const summary = summarizeTimeSeriesResponse(response)
-      await saveRecord({
-        recordType: 'timeseries',
-        input: payload,
-        output: { ...response, summary },
-        summaryValue: summary.finalPlantHeight,
-      })
-      handleFindBestGrowth(timeSeriesForm, response)
-    } catch (e) {
-      setError(e.message || 'Time-series forecast failed.')
-    } finally {
-      setTimeSeriesLoading(false)
     }
   }
 
@@ -627,7 +664,7 @@ export default function InputPage() {
   }
 
   const handleFindBestGrowth = async (baseForm, baseResponse) => {
-    const sourceForm = baseForm || timeSeriesForm
+    const sourceForm = baseForm || integratedTimeSeriesForm
     const sourceResponse = baseResponse || timeSeriesResult
     if (!sourceResponse?.predictions) return
     setBestGrowthLoading(true)
@@ -772,11 +809,26 @@ export default function InputPage() {
                     {['Beefsteak', 'Cherry', 'Heirloom', 'Roma'].map(v => <option key={v} value={v}>{v}</option>)}
                   </select>
                 </div>
+
+                <div className="grid grid-cols-1 gap-4">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">EC Level</label>
+                    <select value={form.ec} onChange={e => updateField('ec', e.target.value)} className="w-full p-4 bg-slate-50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-brand-500 outline-none transition-all">
+                      {['EC3', 'EC6'].map(v => <option key={v} value={v}>{v}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Light Treatment</label>
+                    <select value={form.light} onChange={e => updateField('light', e.target.value)} className="w-full p-4 bg-slate-50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-brand-500 outline-none transition-all">
+                      {['high light', 'med light', 'low light', 'no light'].map(v => <option key={v} value={v}>{v}</option>)}
+                    </select>
+                  </div>
+                </div>
               </div>
 
               <button onClick={handlePredict} disabled={loading} className="w-full mt-8 py-4 bg-brand-600 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-brand-100 hover:bg-brand-700 active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-50">
                 {loading ? <RefreshCw className="animate-spin" size={18} /> : <TrendingUp size={18} />}
-                {loading ? 'Processing...' : 'Run Simulation'}
+                {loading ? 'Processing...' : 'Run Integrated Prediction'}
               </button>
             </div>
           </div>
@@ -917,71 +969,8 @@ export default function InputPage() {
             </div>
         </div>
 
-        <section className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          <div className="lg:col-span-4">
-            <div className="bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm">
-              <div className="flex items-center justify-between mb-8">
-                <div>
-                  <h2 className="text-lg font-black flex items-center gap-2">
-                    <TrendingUp size={20} className="text-brand-600" /> Time-Series Forecast
-                  </h2>
-                  <p className="text-sm text-slate-500 mt-2">New variables are added here without replacing the original yield form.</p>
-                </div>
-                <button onClick={() => setTimeSeriesForm(INITIAL_TS_FORM)} className="text-[10px] font-black text-slate-300 hover:text-brand-600 uppercase tracking-widest transition-colors">
-                  Reset
-                </button>
-              </div>
-
-              <div className="space-y-6">
-                {TS_GROUPS.map(group => (
-                  <div key={group.title} className="space-y-4">
-                    <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-50 pb-2">
-                      {group.icon} {group.title}
-                    </div>
-                    {group.fields.map(field => (
-                      <div key={field.key} className="group relative">
-                        <div className="flex justify-between items-center mb-1.5">
-                          <div className="flex items-center gap-1.5">
-                            <label className="text-[11px] font-bold text-slate-500 group-hover:text-brand-600 transition-colors">{field.label}</label>
-                            <div className="group/tip relative cursor-help">
-                              <HelpCircle size={12} className="text-slate-300 group-hover/tip:text-brand-500 transition-colors" />
-                              <div className="absolute bottom-full left-0 mb-2 w-48 p-3 bg-slate-800 text-white text-[10px] rounded-xl shadow-xl opacity-0 invisible group-hover/tip:opacity-100 group-hover/tip:visible transition-all z-50 leading-relaxed font-medium">
-                                {FIELD_INFO[field.infoKey]}
-                              </div>
-                            </div>
-                          </div>
-                          <input type="number" step={field.step} value={timeSeriesForm[field.key]} onChange={e => updateTimeSeriesField(field.key, e.target.value)} className="w-20 text-right bg-transparent text-xs font-black text-brand-600 outline-none" />
-                        </div>
-                        <input type="range" min={field.min} max={field.max} step={field.step} value={timeSeriesForm[field.key]} onChange={e => updateTimeSeriesField(field.key, e.target.value)} className="w-full h-1 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-brand-600" />
-                      </div>
-                    ))}
-                  </div>
-                ))}
-
-                <div className="grid grid-cols-1 gap-4">
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">EC Level</label>
-                    <select value={timeSeriesForm.ec} onChange={e => updateTimeSeriesField('ec', e.target.value)} className="w-full p-4 bg-slate-50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-brand-500 outline-none transition-all">
-                      {['EC3', 'EC6'].map(v => <option key={v} value={v}>{v}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Light Treatment</label>
-                    <select value={timeSeriesForm.light} onChange={e => updateTimeSeriesField('light', e.target.value)} className="w-full p-4 bg-slate-50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-brand-500 outline-none transition-all">
-                      {['high light', 'med light', 'low light', 'no light'].map(v => <option key={v} value={v}>{v}</option>)}
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <button onClick={handleTimeSeriesPredict} disabled={timeSeriesLoading} className="w-full mt-8 py-4 bg-slate-900 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-slate-200 hover:bg-brand-600 active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-50">
-                {timeSeriesLoading ? <RefreshCw className="animate-spin" size={18} /> : <TrendingUp size={18} />}
-                {timeSeriesLoading ? 'Forecasting...' : 'Run Time-Series'}
-              </button>
-            </div>
-          </div>
-
-          <div className="lg:col-span-8">
+        <section>
+          <div>
             <div className="space-y-6">
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                   {/* Final Height */}

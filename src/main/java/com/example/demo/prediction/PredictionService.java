@@ -2,6 +2,7 @@ package com.example.demo.prediction;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -85,6 +86,36 @@ public class PredictionService {
                 .body(pythonPayload)
                 .retrieve()
                 .body(TimeSeriesPredictionResponse.class);
+    }
+
+    public Map<String, Object> predictIntegrated(final IntegratedPredictionRequest request) {
+        final Map<String, Object> pythonPayload = new LinkedHashMap<>();
+        pythonPayload.put("ec", request.getEc());
+        pythonPayload.put("light", request.getLight());
+        pythonPayload.put("start_day", request.getStartDay());
+        pythonPayload.put("forecast_days", request.getForecastDays());
+        pythonPayload.put("variety", request.getVariety());
+        pythonPayload.put("avg_temperature_C", request.getAvgTemperatureC());
+        pythonPayload.put("min_temperature_C", request.getMinTemperatureC());
+        pythonPayload.put("max_temperature_C", request.getMaxTemperatureC());
+        pythonPayload.put("humidity_percent", request.getHumidityPercent());
+        pythonPayload.put("co2_ppm", request.getCo2Ppm());
+        pythonPayload.put("light_intensity_lux", request.getLightIntensityLux());
+        pythonPayload.put("photoperiod_hours", request.getPhotoperiodHours());
+        pythonPayload.put("irrigation_mm", request.getIrrigationMm());
+        pythonPayload.put("fertilizer_N_kg_ha", request.getFertilizerNKgHa());
+        pythonPayload.put("fertilizer_P_kg_ha", request.getFertilizerPKgHa());
+        pythonPayload.put("fertilizer_K_kg_ha", request.getFertilizerKKgHa());
+        pythonPayload.put("pest_severity", request.getPestSeverity());
+        pythonPayload.put("soil_pH", request.getPH());
+        pythonPayload.put("par_lamp_daily", request.getParLampDaily());
+
+        return restClient.post()
+                .uri("/predict/integrated")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(pythonPayload)
+                .retrieve()
+                .body(new ParameterizedTypeReference<Map<String, Object>>() { });
     }
 
 }

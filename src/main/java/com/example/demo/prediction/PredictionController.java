@@ -1,6 +1,7 @@
 package com.example.demo.prediction;
 
 import jakarta.validation.Valid;
+import java.util.Map;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -26,6 +27,12 @@ public class PredictionController {
     public TimeSeriesPredictionResponse predictTimeSeries(
             @RequestBody @Valid final TimeSeriesPredictionRequest request) {
         return predictionService.predictTimeSeries(request);
+    }
+
+    @PostMapping("/integrated")
+    public Map<String, Object> predictIntegrated(
+            @RequestBody @Valid final IntegratedPredictionRequest request) {
+        return predictionService.predictIntegrated(request);
     }
 
 }
