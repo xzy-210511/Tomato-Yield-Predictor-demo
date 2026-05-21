@@ -9,6 +9,8 @@ import org.springframework.web.server.ResponseStatusException;
 public class AuthService {
 
     private static final String BCRYPT_PREFIX = "$2";
+    private static final String REGISTER_FAILED_MESSAGE = "Unable to create account with these details";
+    private static final String LOGIN_FAILED_MESSAGE = "Invalid username or password";
 
     private final AppUserRepository appUserRepository;
     private final PasswordEncoder passwordEncoder;
@@ -23,7 +25,7 @@ public class AuthService {
     public AuthResponse register(final AuthRequest request) {
         final String username = request.getUsername().trim();
         if (appUserRepository.existsByUsername(username)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "User already exists");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, REGISTER_FAILED_MESSAGE);
         }
 
         final AppUser user = new AppUser();
@@ -37,11 +39,11 @@ public class AuthService {
         final AppUser user = appUserRepository.findByUsername(username)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.UNAUTHORIZED,
-                        "Invalid credentials"
+                        LOGIN_FAILED_MESSAGE
                 ));
 
         if (!passwordMatches(request.getPassword(), user)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, LOGIN_FAILED_MESSAGE);
         }
 
         return new AuthResponse(user);

@@ -8,17 +8,19 @@ async function postAuth(path, payload) {
   if (!res.ok) {
     const text = await res.text()
     if (res.status === 409) {
-      throw new Error('User already exists')
+      throw new Error('Unable to create account with these details')
     }
     if (res.status === 401) {
-      throw new Error('Invalid credentials')
+      throw new Error('Invalid username or password')
     }
+    let message = `Server error ${res.status}`
     try {
-      const data = JSON.parse(text)
-      throw new Error(data.message || `Server error ${res.status}`)
+      const data = text ? JSON.parse(text) : null
+      message = data?.message || message
     } catch {
-      throw new Error(text || `Server error ${res.status}`)
+      message = `Server error ${res.status}`
     }
+    throw new Error(message)
   }
 
   return res.json()
