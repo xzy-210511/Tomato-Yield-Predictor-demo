@@ -13,7 +13,12 @@ async function postAuth(path, payload) {
     if (res.status === 401) {
       throw new Error('Invalid credentials')
     }
-    throw new Error(text || `Server error ${res.status}`)
+    try {
+      const data = JSON.parse(text)
+      throw new Error(data.message || `Server error ${res.status}`)
+    } catch {
+      throw new Error(text || `Server error ${res.status}`)
+    }
   }
 
   return res.json()

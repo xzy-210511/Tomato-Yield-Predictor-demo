@@ -24,9 +24,9 @@ public class ApiExceptionHandler {
     public ResponseEntity<Map<String, String>> handleMethodArgumentNotValid(
             final MethodArgumentNotValidException exception) {
         final FieldError fieldError = exception.getBindingResult().getFieldError();
-        final String message = fieldError != null
-                ? fieldError.getField() + " is required."
-                : "Invalid prediction request.";
+        final String message = fieldError != null && fieldError.getDefaultMessage() != null
+                ? fieldError.getDefaultMessage()
+                : "Invalid request.";
         return ResponseEntity.badRequest()
                 .body(Map.of("message", message));
     }
