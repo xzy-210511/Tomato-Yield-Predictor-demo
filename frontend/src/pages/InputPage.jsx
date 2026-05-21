@@ -1,20 +1,27 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { cloneElement, useEffect, useMemo, useRef, useState } from 'react'
 import TomatoCanvas from '../components/TomatoCanvas.jsx'
+import TopNav from '../components/TopNav.jsx'
+import GlassPanel from '../components/GlassPanel.jsx'
+import CollapsibleGroup from '../components/CollapsibleGroup.jsx'
+import SparklineCard from '../components/SparklineCard.jsx'
 import {
   Activity,
   AlertCircle,
   Bug,
   CheckCircle2,
+  ChevronRight,
   Droplets,
   FlaskConical,
   Gauge,
+  GitCompare,
   HelpCircle,
   Leaf,
   RefreshCw,
+  RotateCcw,
+  Save,
+  Sparkles,
   Sun,
   TrendingUp,
-  User,
   Wind,
   X,
 } from 'lucide-react'
@@ -59,10 +66,11 @@ const FIELD_INFO = {
   pestSeverity: '0-5 scale. 0 = none, 5 = severe.',
   pH: 'Soil/solution pH. Ideal: 6.0-6.8.',
   variety: 'Tomato variety. Different types have varying yield potentials.',
-  tsStartDay: 'Day after transplant where the recursive forecast begins.',
-  forecastDays: 'Number of future days to forecast from the selected start day.',
   startDay: 'Day after transplant where the recursive forecast begins.',
+  forecastDays: 'Number of future days to forecast from the selected start day.',
   parLampDaily: 'Daily lamp PAR used for the forecast window.',
+  tsStartDay: 'Day after transplant where the recursive forecast begins.',
+  tsMaturityDay: 'Last day after transplant to forecast to.',
   tsEc: 'EC treatment label used by the time-series model.',
   tsLight: 'Light treatment label used by the time-series model.',
   tsTAirMean: 'Locked daily mean air temperature used for all future days.',
@@ -135,6 +143,18 @@ function buildYieldPayload(form) {
   return hasInvalidNumber ? null : payload
 }
 
+function normalizeYieldResponse(response) {
+  if (!response) return null
+  if (response.predicted_yield_kg_per_m2 !== undefined) return response
+  if (response.yield_kg_per_m2 !== undefined) {
+    return {
+      ...response,
+      predicted_yield_kg_per_m2: response.yield_kg_per_m2,
+    }
+  }
+  return response
+}
+
 function buildIntegratedPayload(form) {
   const yieldPayload = buildYieldPayload(form)
   if (!yieldPayload) return null
@@ -179,7 +199,8 @@ function buildTimeSeriesFormFromIntegratedForm(form) {
 const PARAMETER_GROUPS = [
   {
     title: 'Climate Matrix',
-    icon: <Sun size={18} className="text-orange-500" />,
+    iconComponent: Sun,
+    iconClass: 'text-amber-400',
     fields: [
       { key: 'avgTemperatureC', label: 'Avg Temp', unit: 'C', min: 10, max: 45, step: 0.1 },
       { key: 'minTemperatureC', label: 'Min Temp', unit: 'C', min: 5, max: 35, step: 0.1 },
@@ -192,7 +213,8 @@ const PARAMETER_GROUPS = [
   },
   {
     title: 'Resource & Soil',
-    icon: <Droplets size={18} className="text-blue-500" />,
+    iconComponent: Droplets,
+    iconClass: 'text-sky-400',
     fields: [
       { key: 'irrigationMm', label: 'Irrigation', unit: 'mm', min: 0, max: 50, step: 0.1 },
       { key: 'pH', label: 'Soil pH', unit: '', min: 4, max: 9, step: 0.1 },
@@ -201,7 +223,8 @@ const PARAMETER_GROUPS = [
   },
   {
     title: 'Nutrient Profile',
-    icon: <FlaskConical size={18} className="text-emerald-500" />,
+    iconComponent: FlaskConical,
+    iconClass: 'text-emerald-400',
     fields: [
       { key: 'fertilizerNKgHa', label: 'Nitrogen (N)', unit: 'kg/ha', min: 0, max: 400, step: 1 },
       { key: 'fertilizerPKgHa', label: 'Phosphorus (P)', unit: 'kg/ha', min: 0, max: 400, step: 1 },
@@ -210,7 +233,8 @@ const PARAMETER_GROUPS = [
   },
   {
     title: 'Forecast Setup',
-    icon: <TrendingUp size={18} className="text-cyan-500" />,
+    iconComponent: TrendingUp,
+    iconClass: 'text-cyan-400',
     fields: [
       { key: 'startDay', label: 'Start Day', unit: 'DAT', min: 0, max: 66, step: 1 },
       { key: 'forecastDays', label: 'Forecast Days', unit: 'days', min: 1, max: 90, step: 1 },
@@ -219,21 +243,10 @@ const PARAMETER_GROUPS = [
   },
 ]
 
-function EmptyChartState() {
-  return (
-    <>
-      <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-300">
-        <TrendingUp size={28} />
-      </div>
-      <p className="font-medium">Run the new time-series forecast to generate the chart.</p>
-    </>
-  )
-}
-
 function GrowthTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
   return (
-    <div className="bg-slate-900/95 backdrop-blur-sm text-white rounded-2xl px-4 py-3 shadow-2xl border border-slate-700 min-w-[180px]">
+    <div className="rounded-2xl border border-ink-700 bg-ink-900/95 px-4 py-3 text-white shadow-2xl backdrop-blur-md min-w-[180px]">
       <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">
         Day {label} · DAT
       </p>
@@ -248,44 +261,6 @@ function GrowthTooltip({ active, payload, label }) {
   )
 }
 
-function MiniSparkline({ data, dataKey, color, gradientId }) {
-  if (!data || data.length < 2) return <div className="h-6" />
-  return (
-    <div className="h-6 -mx-1">
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data} margin={{ top: 1, right: 0, left: 0, bottom: 0 }}>
-          <defs>
-            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity={0.55} />
-              <stop offset="100%" stopColor={color} stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <Area
-            type="monotone"
-            dataKey={dataKey}
-            stroke={color}
-            strokeWidth={2}
-            fill={`url(#${gradientId})`}
-            dot={false}
-            isAnimationActive={false}
-          />
-        </AreaChart>
-      </ResponsiveContainer>
-    </div>
-  )
-}
-
-function NsActionDot({ cx, cy, payload }) {
-  if (cx == null || cy == null || !payload) return null
-  if (payload.nsAction === 'replace') {
-    return <circle cx={cx} cy={cy} r={6} fill="white" stroke="#dc2626" strokeWidth={2.5} />
-  }
-  if (payload.nsAction === 'add') {
-    return <circle cx={cx} cy={cy} r={5} fill="#f97316" stroke="white" strokeWidth={2} />
-  }
-  return null
-}
-
 function NsBarTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
   const p = payload[0].payload
@@ -294,7 +269,7 @@ function NsBarTooltip({ active, payload, label }) {
     action === 'replace' ? 'bg-red-500' : action === 'add' ? 'bg-orange-500' : 'bg-slate-600'
   const tagText = action ? action.toUpperCase() : 'IDLE'
   return (
-    <div className="bg-slate-900/95 backdrop-blur-sm text-white rounded-2xl px-4 py-3 shadow-2xl border border-slate-700 max-w-[260px]">
+    <div className="rounded-2xl border border-ink-700 bg-ink-900/95 px-4 py-3 text-white shadow-2xl backdrop-blur-md max-w-[260px]">
       <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">
         Day {label} · DAT
       </p>
@@ -337,9 +312,102 @@ function summarizeTimeSeriesResponse(response) {
   }
 }
 
+const BOTTLENECK_BG = {
+  red:     'bg-red-500/20 text-red-300 border-red-500/40',
+  blue:    'bg-sky-500/20 text-sky-300 border-sky-500/40',
+  orange:  'bg-orange-500/20 text-orange-300 border-orange-500/40',
+  emerald: 'bg-brand-500/20 text-brand-400 border-brand-500/40',
+}
+
+function AdvisorSummary({ suggestions, onOpen }) {
+  if (!suggestions || suggestions.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-ink-700 bg-ink-900/40 p-3 text-center">
+        <p className="text-[11px] font-bold leading-snug text-slate-500">
+          Advisor will populate after a successful run.
+        </p>
+      </div>
+    )
+  }
+  const counts = suggestions.reduce(
+    (acc, s) => ({ ...acc, [s.severity]: (acc[s.severity] || 0) + 1 }),
+    { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
+  )
+  const hasCritical = counts.critical > 0
+  const top = suggestions[0]
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={`w-full rounded-2xl border p-3 text-left transition-colors ${
+        hasCritical
+          ? 'border-red-500/45 bg-red-500/10 hover:border-red-500'
+          : 'border-ink-700 bg-ink-900/40 hover:border-brand-500'
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-brand-400">
+          <Sparkles size={11} className="text-amber-400" />
+          AI Advisor · {suggestions.length}
+        </span>
+        <ChevronRight size={12} className="text-slate-500" />
+      </div>
+      <p className="mt-1.5 line-clamp-2 text-xs font-bold leading-snug text-slate-100">
+        {top.title}
+      </p>
+      <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] font-black uppercase tracking-widest">
+        {counts.critical ? <span className="rounded bg-red-500/25 px-1.5 py-0.5 text-red-200">{counts.critical} critical</span> : null}
+        {counts.high     ? <span className="rounded bg-red-500/20 px-1.5 py-0.5 text-red-200">{counts.high} high</span> : null}
+        {counts.medium   ? <span className="rounded bg-orange-500/20 px-1.5 py-0.5 text-orange-200">{counts.medium} med</span> : null}
+        {counts.low      ? <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-amber-200">{counts.low} low</span> : null}
+        {counts.info     ? <span className="rounded bg-brand-500/20 px-1.5 py-0.5 text-brand-200">{counts.info} info</span> : null}
+      </div>
+    </button>
+  )
+}
+
+function FieldRow({ field, info, value, onChange }) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 truncate">
+            {field.label}
+          </label>
+          {info ? (
+            <div className="group/tip relative cursor-help">
+              <HelpCircle size={11} className="text-slate-600 transition-colors group-hover/tip:text-brand-400" />
+              <div className="pointer-events-none absolute bottom-full left-0 mb-1.5 w-48 rounded-xl border border-ink-700 bg-ink-900/95 p-2.5 text-[10px] font-medium leading-relaxed text-slate-300 opacity-0 shadow-2xl backdrop-blur-md transition-all group-hover/tip:opacity-100 z-50">
+                {info}
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <input
+          type="number"
+          step={field.step}
+          value={value}
+          onChange={(e) => onChange(field.key, e.target.value)}
+          className="w-16 bg-transparent text-right text-xs font-black text-brand-400 outline-none"
+        />
+      </div>
+      <input
+        type="range"
+        min={field.min}
+        max={field.max}
+        step={field.step}
+        value={value}
+        onChange={(e) => onChange(field.key, e.target.value)}
+        className="h-1 w-full cursor-pointer appearance-none rounded-full bg-ink-700 accent-brand-500"
+      />
+    </div>
+  )
+}
+
 export default function InputPage() {
   const [form, setForm] = useState(INITIAL_FORM)
   const [loading, setLoading] = useState(false)
+  const [timeSeriesLoading, setTimeSeriesLoading] = useState(false)
   const [bestYieldLoading, setBestYieldLoading] = useState(false)
   const [bestGrowthLoading, setBestGrowthLoading] = useState(false)
   const [error, setError] = useState('')
@@ -352,23 +420,25 @@ export default function InputPage() {
   const [timeSeriesResult, setTimeSeriesResult] = useState(null)
   const [bestYield, setBestYield] = useState(null)
   const [bestGrowth, setBestGrowth] = useState(null)
-  const [viewMode, setViewMode] = useState('default')
-  const navigate = useNavigate()
+  const [activeWorkflow, setActiveWorkflow] = useState('yield')
+  const [compareOpen, setCompareOpen] = useState(false)
+  const [detailOpen, setDetailOpen] = useState(null)
+  const [advisorOpen, setAdvisorOpen] = useState(false)
   const livePredictionRequestRef = useRef(0)
-  const user = localStorage.getItem('user')
   const userId = localStorage.getItem('userId')
-  const integratedTimeSeriesForm = useMemo(() => buildTimeSeriesFormFromIntegratedForm(form), [form])
-  const displayedTimeSeriesForm = integratedTimeSeriesForm
-
-  const updateField = (key, value) => setForm(prev => ({ ...prev, [key]: value }))
 
   useEffect(() => {
-    if (viewMode !== '3d') {
-      livePredictionRequestRef.current += 1
-      setLivePrediction(prev => ({ ...prev, loading: false }))
-      return undefined
-    }
+    document.body.classList.add('theme-dark')
+    return () => document.body.classList.remove('theme-dark')
+  }, [])
 
+  const updateField = (key, value) => setForm(prev => ({ ...prev, [key]: value }))
+  const displayedTimeSeriesForm = useMemo(
+    () => buildTimeSeriesFormFromIntegratedForm(form),
+    [form],
+  )
+
+  useEffect(() => {
     const payload = buildYieldPayload(form)
     const requestId = livePredictionRequestRef.current + 1
     livePredictionRequestRef.current = requestId
@@ -400,7 +470,7 @@ export default function InputPage() {
       cancelled = true
       window.clearTimeout(timeoutId)
     }
-  }, [form, viewMode])
+  }, [form])
 
   const bottleneck = useMemo(() => {
     if (!result) return null
@@ -428,7 +498,6 @@ export default function InputPage() {
       const nsNew = point.ns_new_per_plant_l ?? 0
       const nsAdded = point.ns_added_per_plant_l ?? 0
       const nsAction = point.ns_action
-      // Actionable volume on this day: replace uses fresh L, add uses added L, idle is 0.
       const actionVolume =
         nsAction === 'replace' ? nsNew : nsAction === 'add' ? nsAdded : 0
       return {
@@ -488,46 +557,8 @@ export default function InputPage() {
     ).suggestions
   }, [displayedTimeSeriesForm, timeSeriesResult, trajectoryStats])
 
-  const timeSeriesSummary = useMemo(() => {
-    if (timeSeriesChartData.length < 2) {
-      return {
-        label: 'Awaiting Forecast',
-        desc: 'Run the time-series model to generate daily points and the curve.',
-        icon: <Activity />,
-        color: 'slate',
-      }
-    }
-    const first = timeSeriesChartData[0]
-    const last = timeSeriesChartData[timeSeriesChartData.length - 1]
-    const heightGain = last.plantHeightCm - first.plantHeightCm
-    const leafGain = last.numLeaves - first.numLeaves
-    if (heightGain > 12 && leafGain > 8) {
-      return {
-        label: 'Strong Growth',
-        desc: 'Both height and leaf count rise well over the forecast window.',
-        icon: <CheckCircle2 />,
-        color: 'emerald',
-      }
-    }
-    if (parseFloat(displayedTimeSeriesForm.co2Mean) < 450) {
-      return {
-        label: 'CO2 Constraint',
-        desc: 'The locked CO2 value is a likely limiting factor for future growth.',
-        icon: <Wind />,
-        color: 'blue',
-      }
-    }
-    return {
-      label: 'Moderate Growth',
-      desc: 'The curve is stable, with room to improve the environment locks.',
-      icon: <Gauge />,
-      color: 'orange',
-    }
-  }, [timeSeriesChartData, displayedTimeSeriesForm.co2Mean])
-
   const saveRecord = async ({ recordType, input, output, summaryValue }) => {
     if (!userId) return
-
     try {
       await createRecord({
         userId: parseInt(userId, 10),
@@ -543,6 +574,7 @@ export default function InputPage() {
 
   const handlePredict = async () => {
     setLoading(true)
+    setTimeSeriesLoading(true)
     setError('')
     setResult(null)
     setTimeSeriesResult(null)
@@ -551,40 +583,38 @@ export default function InputPage() {
     try {
       const payload = buildIntegratedPayload(form)
       if (!payload) {
-        throw new Error('Please enter valid values before running the simulation.')
+        throw new Error('Please enter valid values before running the integrated prediction.')
       }
       const response = await predictIntegrated(payload)
-      const predictedYieldValue = response?.final_yield_prediction?.yield_kg_per_m2
-      if (response && predictedYieldValue !== undefined && Array.isArray(response.predictions)) {
+      const yieldResponse = normalizeYieldResponse(response?.final_yield_prediction || response)
+      if (yieldResponse && yieldResponse.predicted_yield_kg_per_m2 !== undefined && Array.isArray(response?.predictions)) {
         const yieldPayload = buildYieldPayload(form)
-        const yieldResponse = { predicted_yield_kg_per_m2: predictedYieldValue }
-        const timeSeriesPayload = buildTimeSeriesPayload(buildTimeSeriesFormFromIntegratedForm(form))
-
+        const growthPayload = buildTimeSeriesPayload(displayedTimeSeriesForm)
         setResult({ response: yieldResponse, payload: yieldPayload })
         setTimeSeriesResult(response)
-
         await saveRecord({
           recordType: 'yield',
           input: yieldPayload,
           output: yieldResponse,
-          summaryValue: predictedYieldValue,
+          summaryValue: yieldResponse.predicted_yield_kg_per_m2,
         })
         const summary = summarizeTimeSeriesResponse(response)
         await saveRecord({
           recordType: 'timeseries',
-          input: timeSeriesPayload,
+          input: growthPayload,
           output: { ...response, summary },
           summaryValue: summary.finalPlantHeight,
         })
         handleFindBestYield(yieldPayload, yieldResponse)
-        handleFindBestGrowth(buildTimeSeriesFormFromIntegratedForm(form), response)
+        handleFindBestGrowth(displayedTimeSeriesForm, response)
       } else {
         throw new Error('Invalid integrated response format.')
       }
     } catch (e) {
-      setError(e.message || 'Simulation failed.')
+      setError(e.message || 'Integrated prediction failed.')
     } finally {
       setLoading(false)
+      setTimeSeriesLoading(false)
     }
   }
 
@@ -644,27 +674,23 @@ export default function InputPage() {
     for (let i = 0; i < currentPoints.length; i += 1) {
       const currentPoint = currentPoints[i]
       let candidatePoint = null
-
       for (let j = 0; j < candidatePoints.length; j += 1) {
         if (candidatePoints[j].day === currentPoint.day) {
           candidatePoint = candidatePoints[j]
           break
         }
       }
-
       if (!candidatePoint) continue
-
       heightScore += (candidatePoint.plantHeightCm - currentPoint.plantHeightCm) / Math.max(currentPoint.plantHeightCm, 1)
       leafScore += (candidatePoint.numLeaves - currentPoint.numLeaves) / Math.max(currentPoint.numLeaves, 1)
       matchedCount += 1
     }
-
     if (matchedCount === 0) return 0
     return (heightScore + leafScore) / matchedCount
   }
 
   const handleFindBestGrowth = async (baseForm, baseResponse) => {
-    const sourceForm = baseForm || integratedTimeSeriesForm
+    const sourceForm = baseForm || displayedTimeSeriesForm
     const sourceResponse = baseResponse || timeSeriesResult
     if (!sourceResponse?.predictions) return
     setBestGrowthLoading(true)
@@ -687,13 +713,10 @@ export default function InputPage() {
         const candidate = candidates[i]
         const response = await predictTimeSeries(candidate.payload)
         if (!response || !Array.isArray(response.predictions)) continue
-
         const points = mapTimeSeriesPredictions(response.predictions)
         const summary = summarizeTrajectory(points)
         if (!summary || !currentSummary) continue
-
         const candidateScore = scoreGrowthCurve(currentPoints, points)
-
         if (candidateScore > bestScore) {
           bestScore = candidateScore
           best = {
@@ -721,687 +744,686 @@ export default function InputPage() {
   }
 
   const predictedYield = result?.response?.predicted_yield_kg_per_m2
+  const livePredictedYield = livePrediction?.response?.predicted_yield_kg_per_m2
   const finalTimeSeriesPoint = timeSeriesChartData.at(-1)
   const totalNsSupply = timeSeriesChartData.reduce(
     (sum, point) => sum + point.nsNew + point.nsAdded,
-    0
+    0,
   )
   const firstNsAction = timeSeriesChartData.find(point =>
     ['replace', 'add'].includes(point.nsAction)
   )
 
+  const yieldRun = activeWorkflow === 'yield'
+
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-900 font-sans">
-      <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200">
-        <div className="max-w-[1400px] mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-brand-600 flex items-center justify-center shadow-lg shadow-brand-200">
-              <Leaf className="text-white" size={22} />
-            </div>
-            <h1 className="text-xl font-black tracking-tight uppercase italic">
-              Tomato<span className="text-brand-600">Lab</span>
-            </h1>
-          </div>
-          <div className="flex items-center gap-6">
-            <button onClick={() => navigate('/history')} className="text-sm font-bold text-slate-500 hover:text-brand-600 transition-colors">
-              History
-            </button>
-            {user ? (
-              <div className="flex items-center gap-4 px-4 py-2 bg-slate-50 rounded-xl border border-slate-100">
-                <span className="text-xs font-black text-slate-700 flex items-center gap-2">
-                  <User size={14} /> {user}
-                </span>
-                <button onClick={() => { localStorage.removeItem('user'); localStorage.removeItem('userId'); window.location.reload() }} className="text-xs font-bold text-red-500 hover:text-red-600">
-                  Logout
-                </button>
-              </div>
-            ) : (
-              <button onClick={() => navigate('/login')} className="px-6 py-2 bg-slate-900 text-white rounded-xl text-xs font-black hover:bg-brand-600 transition-all shadow-lg shadow-slate-200">
-                Sign In
-              </button>
-            )}
-          </div>
-        </div>
-      </nav>
+    <div className="relative min-h-screen overflow-hidden bg-hero-radial text-slate-100">
+      {/* 3D background */}
+      <div className="fixed inset-0 z-0">
+        <TomatoCanvas metrics={form} prediction={livePrediction.response} darkBg />
+      </div>
 
-      <main className="max-w-[1400px] mx-auto px-6 py-8 space-y-8">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          <div className="lg:col-span-5 xl:col-span-4">
-            <div className="bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm sticky top-24">
-              <div className="flex items-center justify-between mb-8">
-                <h2 className="text-lg font-black flex items-center gap-2">
-                  <Activity size={20} className="text-brand-600" /> Lab Settings
-                </h2>
-                <button onClick={() => setForm(INITIAL_FORM)} className="text-[10px] font-black text-slate-300 hover:text-brand-600 uppercase tracking-widest transition-colors">
-                  Reset
-                </button>
-              </div>
+      {/* Subtle grid + vignettes (sit above 3D, below UI) */}
+      <div className="pointer-events-none fixed inset-0 z-10 grid-bg opacity-55" />
+      <div className="pointer-events-none fixed inset-x-0 top-0 z-10 h-28 bg-gradient-to-b from-ink-950/90 to-transparent" />
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-10 h-40 bg-gradient-to-t from-ink-950/95 to-transparent" />
 
-              <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
-                {PARAMETER_GROUPS.map(group => (
-                  <div key={group.title} className="space-y-4">
-                    <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-50 pb-2">
-                      {group.icon} {group.title}
+      <div className="pointer-events-none relative z-20 flex min-h-screen flex-col">
+        <TopNav variant="dark" />
+
+        <main className="pointer-events-none flex-1 px-4 pt-4 pb-6 sm:px-6">
+          <div className="flex w-full flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            {/* INPUTS LEFT */}
+            <aside className="pointer-events-auto w-full shrink-0 lg:w-[340px] xl:w-[360px] 2xl:w-[380px]">
+              <div
+                className="flex flex-col overflow-hidden rounded-3xl border border-ink-700 bg-ink-900/82 backdrop-blur-xl shadow-[0_24px_60px_-24px_rgba(0,0,0,0.7)] lg:sticky lg:top-20 lg:max-h-[calc(100vh-10rem)]"
+                onMouseDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+              >
+                <div className="scrollbar-thin flex-1 overflow-y-auto p-3">
+                  <div className="mb-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.22em] text-brand-500">
+                        Integrated Model
+                      </p>
+                      <p className="mt-1 text-xs font-bold text-slate-500">
+                        One input set drives yield and growth.
+                      </p>
                     </div>
-                    {group.fields.map(field => (
-                      <div key={field.key} className="group relative">
-                        <div className="flex justify-between items-center mb-1.5">
-                          <div className="flex items-center gap-1.5">
-                            <label className="text-[11px] font-bold text-slate-500 group-hover:text-brand-600 transition-colors">{field.label}</label>
-                            <div className="group/tip relative cursor-help">
-                              <HelpCircle size={12} className="text-slate-300 group-hover/tip:text-brand-500 transition-colors" />
-                              <div className="absolute bottom-full left-0 mb-2 w-48 p-3 bg-slate-800 text-white text-[10px] rounded-xl shadow-xl opacity-0 invisible group-hover/tip:opacity-100 group-hover/tip:visible transition-all z-50 leading-relaxed font-medium">
-                                {FIELD_INFO[field.key]}
-                              </div>
+                    <button
+                      type="button"
+                      onClick={() => setForm(INITIAL_FORM)}
+                      className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-slate-500 transition-colors hover:text-brand-400"
+                    >
+                      <RotateCcw size={10} />
+                      Reset
+                    </button>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {PARAMETER_GROUPS.map(group => (
+                      <CollapsibleGroup
+                        key={group.title}
+                        id={`integrated-${group.title}`}
+                        title={group.title}
+                        icon={group.iconComponent}
+                        iconClass={group.iconClass}
+                      >
+                        {group.fields.map(field => (
+                          <FieldRow
+                            key={field.key}
+                            field={field}
+                            info={FIELD_INFO[field.infoKey || field.key]}
+                            value={form[field.key]}
+                            onChange={updateField}
+                          />
+                        ))}
+                      </CollapsibleGroup>
+                    ))}
+
+                    <CollapsibleGroup id="integrated-variety" title="Variety" icon={Leaf} iconClass="text-brand-400">
+                      <select
+                        value={form.variety}
+                        onChange={(e) => updateField('variety', e.target.value)}
+                        className="w-full rounded-2xl border border-ink-700 bg-ink-850/80 p-3 text-sm font-bold text-slate-100 outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+                      >
+                        {['Beefsteak', 'Cherry', 'Heirloom', 'Roma'].map(v => (
+                          <option key={v} value={v}>{v}</option>
+                        ))}
+                      </select>
+                    </CollapsibleGroup>
+
+                    <CollapsibleGroup id="integrated-treatment" title="Treatment" icon={Activity} iconClass="text-brand-400">
+                      <div className="space-y-3">
+                        <div>
+                          <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            EC Level
+                          </label>
+                          <select
+                            value={form.ec}
+                            onChange={(e) => updateField('ec', e.target.value)}
+                            className="w-full rounded-2xl border border-ink-700 bg-ink-850/80 p-3 text-sm font-bold text-slate-100 outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+                          >
+                            {['EC3', 'EC6'].map(v => <option key={v} value={v}>{v}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            Light Treatment
+                          </label>
+                          <select
+                            value={form.light}
+                            onChange={(e) => updateField('light', e.target.value)}
+                            className="w-full rounded-2xl border border-ink-700 bg-ink-850/80 p-3 text-sm font-bold text-slate-100 outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+                          >
+                            {['high light', 'med light', 'low light', 'no light'].map(v => (
+                              <option key={v} value={v}>{v}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </CollapsibleGroup>
+                  </div>
+                </div>
+
+                <div className="border-t border-ink-700/60 p-3">
+                  <button
+                    onClick={handlePredict}
+                    disabled={loading || timeSeriesLoading}
+                    className="flex w-full items-center justify-center gap-2 rounded-full bg-brand-600 py-3 text-[11px] font-black uppercase tracking-[0.22em] text-white transition-colors hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {loading || timeSeriesLoading ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                    {loading || timeSeriesLoading ? 'Processing…' : 'Run Integrated Prediction'}
+                  </button>
+                </div>
+              </div>
+            </aside>
+
+            {/* OUTPUT RIGHT (+ stacked sparkline column below) */}
+            <aside className="pointer-events-auto w-full shrink-0 lg:w-[320px] xl:w-[340px] 2xl:w-[360px]">
+              <div className="lg:sticky lg:top-20 flex flex-col gap-3 lg:max-h-[calc(100vh-6rem)]">
+              <div
+                className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-ink-700 bg-ink-900/82 backdrop-blur-xl shadow-[0_24px_60px_-24px_rgba(0,0,0,0.7)]"
+                onMouseDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+              >
+                <div className="border-b border-ink-700/60 px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-brand-500">
+                      {yieldRun ? 'Yield Result' : 'Growth Result'}
+                    </p>
+                    <div className="grid shrink-0 grid-cols-2 rounded-full border border-ink-700 bg-ink-950/50 p-0.5">
+                      {[
+                        { value: 'yield', label: 'Yield', icon: TrendingUp },
+                        { value: 'growth', label: 'Growth', icon: Leaf },
+                      ].map(option => {
+                        const Icon = option.icon
+                        const active = activeWorkflow === option.value
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => setActiveWorkflow(option.value)}
+                            className={`flex items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-colors ${
+                              active
+                                ? 'bg-brand-600 text-white'
+                                : 'text-slate-500 hover:text-brand-400'
+                            }`}
+                          >
+                            <Icon size={11} />
+                            {option.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="scrollbar-thin flex-1 overflow-y-auto p-4 space-y-4">
+                  {yieldRun ? (
+                    <>
+                      <div>
+                        <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-slate-500">
+                          {result ? 'Predicted Yield' : 'Live Estimate'}
+                        </p>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-5xl font-black tabular-nums text-slate-50 leading-none">
+                            {predictedYield != null
+                              ? predictedYield.toFixed(2)
+                              : livePredictedYield != null
+                                ? livePredictedYield.toFixed(2)
+                                : '—'}
+                          </span>
+                          <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                            kg/m²
+                          </span>
+                        </div>
+                        {!result && livePrediction.loading ? (
+                          <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-slate-600">
+                            Live · computing…
+                          </p>
+                        ) : null}
+                      </div>
+
+                      {bottleneck ? (
+                        <div className={`rounded-2xl border bg-ink-900/40 p-3 ${BOTTLENECK_BG[bottleneck.color] || BOTTLENECK_BG.emerald}`}>
+                          <div className="flex items-start gap-3">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-ink-950/40">
+                              {cloneElement(bottleneck.icon, { size: 16 })}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                Bottleneck
+                              </p>
+                              <p className="text-sm font-black text-slate-50">{bottleneck.label}</p>
+                              <p className="text-[11px] font-semibold leading-snug text-slate-300">
+                                {bottleneck.desc}
+                              </p>
                             </div>
                           </div>
-                          <input type="number" step={field.step} value={form[field.key]} onChange={e => updateField(field.key, e.target.value)} className="w-16 text-right bg-transparent text-xs font-black text-brand-600 outline-none" />
                         </div>
-                        <input type="range" min={field.min} max={field.max} step={field.step} value={form[field.key]} onChange={e => updateField(field.key, e.target.value)} className="w-full h-1 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-brand-600" />
-                      </div>
-                    ))}
-                  </div>
-                ))}
-
-                <div className="pt-4">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Variety Selection</label>
-                  <select value={form.variety} onChange={e => updateField('variety', e.target.value)} className="w-full p-4 bg-slate-50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-brand-500 outline-none transition-all">
-                    {['Beefsteak', 'Cherry', 'Heirloom', 'Roma'].map(v => <option key={v} value={v}>{v}</option>)}
-                  </select>
-                </div>
-
-                <div className="grid grid-cols-1 gap-4">
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">EC Level</label>
-                    <select value={form.ec} onChange={e => updateField('ec', e.target.value)} className="w-full p-4 bg-slate-50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-brand-500 outline-none transition-all">
-                      {['EC3', 'EC6'].map(v => <option key={v} value={v}>{v}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Light Treatment</label>
-                    <select value={form.light} onChange={e => updateField('light', e.target.value)} className="w-full p-4 bg-slate-50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-brand-500 outline-none transition-all">
-                      {['high light', 'med light', 'low light', 'no light'].map(v => <option key={v} value={v}>{v}</option>)}
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <button onClick={handlePredict} disabled={loading} className="w-full mt-8 py-4 bg-brand-600 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-brand-100 hover:bg-brand-700 active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-50">
-                {loading ? <RefreshCw className="animate-spin" size={18} /> : <TrendingUp size={18} />}
-                {loading ? 'Processing...' : 'Run Integrated Prediction'}
-              </button>
-            </div>
-          </div>
-
-          <div className="lg:col-span-7 xl:col-span-8">
-
-            {/* Main Panel */}
-            <div className="bg-white rounded-[3rem] border border-slate-200 shadow-sm p-6 min-h-[600px]">
-                          {/* 🔘 Mode Switch */}
-            <div className="flex justify-center mb-6">
-              <div className="flex p-1 bg-slate-100 rounded-2xl">
-                <button
-                  onClick={() => setViewMode('default')}
-                  className={`px-5 py-2 text-xs font-black rounded-xl transition-all ${
-                    viewMode === 'default'
-                      ? 'bg-white text-slate-900 shadow-sm'
-                      : 'text-slate-400'
-                  }`}
-                >
-                  Data
-                </button>
-
-                <button
-                  onClick={() => setViewMode('3d')}
-                  className={`px-5 py-2 text-xs font-black rounded-xl transition-all ${
-                    viewMode === '3d'
-                      ? 'bg-white text-slate-900 shadow-sm'
-                      : 'text-slate-400'
-                  }`}
-                >
-                  3D
-                </button>
-              </div>
-            </div>
-
-              {viewMode === '3d' ? (
-                <div className="h-[520px] rounded-2xl overflow-hidden bg-slate-50 flex items-center justify-center">
-                  <TomatoCanvas metrics={form} prediction={livePrediction.response} />
-                </div>
-
-              ) : result ? (
-                <div className="animate-in fade-in slide-in-from-right-8 duration-500 space-y-8">
-                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                    <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-sm relative overflow-hidden group">
-                      <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform duration-700 text-brand-600"><Activity size={200} /></div>
-                      <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Estimated Yield</p>
-                      <div className="flex items-baseline gap-3">
-                        <span className="text-7xl sm:text-8xl font-black text-slate-900 tracking-tighter">{predictedYield.toFixed(2)}</span>
-                        <span className="text-xl font-bold text-slate-400 uppercase tracking-tighter">kg/m2</span>
-                      </div>
-                    </div>
-
-                    <div className="bg-slate-900 rounded-[3rem] p-10 text-white shadow-2xl flex flex-col justify-between relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-8 opacity-10"><TrendingUp size={120} /></div>
-                    <div>
-                      <h3 className="text-xl font-black mb-1 italic tracking-tight">Optimization Focus</h3>
-                      <p className="text-brand-400 text-[10px] font-black uppercase tracking-widest mb-6 underline decoration-brand-400/30 underline-offset-4">Current Bottleneck</p>
-                      <div className="flex items-center gap-4 relative z-10">
-                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-lg ${
-                          bottleneck.color === 'red' ? 'bg-red-500' :
-                          bottleneck.color === 'blue' ? 'bg-blue-500' :
-                          bottleneck.color === 'orange' ? 'bg-orange-500' : 'bg-emerald-500'
-                        }`}>{bottleneck.icon}</div>
-                        <div>
-                          <p className="text-lg font-black">{bottleneck.label}</p>
-                          <p className="text-xs text-slate-400 font-medium leading-tight">{bottleneck.desc}</p>
+                      ) : (
+                        <div className="rounded-2xl border border-dashed border-ink-700 bg-ink-900/40 p-4 text-center">
+                          <p className="text-[11px] font-bold leading-snug text-slate-500">
+                            Adjust inputs on the left, then run the integrated prediction.
+                          </p>
                         </div>
-                      </div>
-                    </div>
-                    <div className="mt-8 pt-6 border-t border-white/10 flex justify-between items-end">
-                      <div>
-                        <p className="text-[10px] font-black text-slate-500 uppercase">Growth Status</p>
-                        <p className="text-sm font-bold text-brand-400">Metabolic Peak</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-[10px] font-black text-slate-500 uppercase">Est. Harvest</p>
-                        <p className="text-sm font-bold">~14-21 Days</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                      )}
 
-                <AdvisorPanel suggestions={advisorSuggestions} />
-
-                <div className="bg-white rounded-[3rem] p-8 border border-slate-200 shadow-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-                    <div>
-                      <h3 className="text-xl font-black flex items-center gap-3">
-                        <TrendingUp size={22} className="text-brand-600" /> Yield Before vs After
-                      </h3>
-                    </div>
-                    {bestYieldLoading && (
-                      <div className="px-4 py-2 rounded-2xl bg-slate-100 text-slate-500 text-xs font-black uppercase tracking-widest flex items-center gap-2">
-                        <RefreshCw size={14} className="animate-spin" /> Searching
-                      </div>
-                    )}
-                  </div>
-
-                  {bestYield ? (
-                    <div className="space-y-5">
-                      <div className="h-[280px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart
-                            data={[
-                              { label: 'Before', yield: bestYield.currentYield },
-                              { label: 'After', yield: bestYield.best.predictedYield },
-                            ]}
-                            margin={{ top: 12, right: 16, left: 0, bottom: 0 }}
-                          >
-                            <CartesianGrid stroke="#f1f5f9" vertical={false} />
-                            <XAxis dataKey="label" stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} />
-                            <YAxis stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={44} tickFormatter={v => v.toFixed(1)} />
-                            <Tooltip cursor={{ fill: '#f8fafc' }} formatter={v => [`${Number(v).toFixed(2)} kg/m2`, 'Predicted Yield']} />
-                            <Bar dataKey="yield" radius={[8, 8, 0, 0]} maxBarSize={90}>
-                              <Cell fill="#94a3b8" />
-                              <Cell fill="#16a34a" />
-                            </Bar>
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
+                      {result ? (
+                        <AdvisorSummary
+                          suggestions={advisorSuggestions}
+                          onOpen={() => setAdvisorOpen(true)}
+                        />
+                      ) : null}
+                    </>
                   ) : (
-                    <div className="rounded-2xl bg-slate-50 border border-dashed border-slate-200 p-6 text-sm font-bold text-slate-400 text-center">
-                      {bestYieldLoading ? 'Searching all tested yield combinations...' : 'Run prediction to generate the before and after comparison.'}
-                    </div>
+                    <>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="rounded-2xl border border-ink-700 bg-ink-900/40 p-2.5">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Height</p>
+                          <p className="text-xl font-black tabular-nums text-slate-50">
+                            {finalTimeSeriesPoint ? finalTimeSeriesPoint.plantHeightCm.toFixed(1) : '—'}
+                          </p>
+                          <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600">cm</p>
+                        </div>
+                        <div className="rounded-2xl border border-ink-700 bg-ink-900/40 p-2.5">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Leaves</p>
+                          <p className="text-xl font-black tabular-nums text-slate-50">
+                            {finalTimeSeriesPoint ? finalTimeSeriesPoint.numLeaves.toFixed(1) : '—'}
+                          </p>
+                          <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600">count</p>
+                        </div>
+                        <div className="rounded-2xl border border-ink-700 bg-ink-900/40 p-2.5">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">NS Total</p>
+                          <p className="text-xl font-black tabular-nums text-slate-50">
+                            {timeSeriesChartData.length ? totalNsSupply.toFixed(2) : '—'}
+                          </p>
+                          <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600">L/plant</p>
+                        </div>
+                      </div>
+
+                      {firstNsAction ? (
+                        <div className="rounded-2xl border border-orange-500/40 bg-orange-500/10 p-3">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-orange-300 mb-1">
+                            Next NS Action · Day {firstNsAction.day}
+                          </p>
+                          <p className="text-sm font-bold text-slate-100 leading-snug">
+                            {firstNsAction.nsRecommendation || (
+                              firstNsAction.nsAction === 'replace' ? 'Replace nutrient solution' : `Add ${firstNsAction.actionVolume.toFixed(2)}L nutrient solution`
+                            )}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="rounded-2xl border border-dashed border-ink-700 bg-ink-900/40 p-4 text-center">
+                          <p className="text-[11px] font-bold leading-snug text-slate-500">
+                            {timeSeriesResult ? 'No NS action triggered.' : 'Run the integrated prediction to populate the curves.'}
+                          </p>
+                        </div>
+                      )}
+
+                      {trajectoryStats ? (
+                        <div className="rounded-2xl border border-ink-700 bg-ink-900/40 p-3 text-[10px] font-bold tabular-nums text-slate-400">
+                          <span className="text-slate-500 uppercase tracking-widest mr-2">{trajectoryStats.days}d</span>
+                          <span className="text-brand-400">+{trajectoryStats.heightDelta.toFixed(1)} cm</span>
+                          <span className="mx-1.5 text-slate-700">·</span>
+                          <span className="text-sky-400">+{trajectoryStats.leafDelta.toFixed(1)} leaf</span>
+                          <span className="mx-1.5 text-slate-700">·</span>
+                          <span className="text-orange-400">{(trajectoryStats.freshTotal + trajectoryStats.addedTotal).toFixed(1)}L NS</span>
+                        </div>
+                      ) : null}
+
+                      {timeSeriesResult ? (
+                        <AdvisorSummary
+                          suggestions={timeSeriesAdvisorSuggestions}
+                          onOpen={() => setAdvisorOpen(true)}
+                        />
+                      ) : null}
+                    </>
                   )}
                 </div>
+
+                <div className="border-t border-ink-700/60 p-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCompareOpen(true)}
+                    disabled={yieldRun ? !bestYield : !bestGrowth}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-full border border-ink-700 bg-ink-900/60 px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-300 transition-colors hover:border-brand-500 hover:text-brand-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {(yieldRun ? bestYieldLoading : bestGrowthLoading) ? (
+                      <RefreshCw size={12} className="animate-spin" />
+                    ) : (
+                      <GitCompare size={12} />
+                    )}
+                    Compare
+                  </button>
+                </div>
               </div>
 
-            ) : (
-              <div className="h-full min-h-[500px] flex flex-col items-center justify-center text-center bg-white rounded-[3rem] border-2 border-dashed border-slate-100 p-12">
-                <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mb-8 animate-pulse text-slate-200"><FlaskConical size={40} /></div>
-                <h3 className="text-2xl font-black text-slate-300 tracking-tight italic">Ready for Lab Data</h3>
-                <p className="text-slate-400 text-sm max-w-sm mt-4 font-medium italic">Adjust the environmental matrix to see predicted growth potential.</p>
-              </div>
-            )}
-            </div>
-            </div>
-        </div>
-
-        <section>
-          <div>
-            <div className="space-y-6">
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                  {/* Final Height */}
-                  <div className="bg-white rounded-[2rem] p-6 border border-slate-200 shadow-sm flex flex-col gap-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center">
-                        <Sun size={16} />
-                      </div>
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Final Height</p>
-                    </div>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-4xl font-black text-slate-900 tracking-tighter tabular-nums">
-                        {finalTimeSeriesPoint ? finalTimeSeriesPoint.plantHeightCm.toFixed(1) : '--'}
-                      </span>
-                      <span className="text-xs font-black text-slate-400 uppercase tracking-tighter">cm</span>
-                    </div>
-                    {trajectoryStats ? (
-                      <p className="text-[11px] font-bold text-brand-600 tabular-nums">
-                        Δ {trajectoryStats.heightDelta >= 0 ? '+' : ''}{trajectoryStats.heightDelta.toFixed(1)} cm · {trajectoryStats.heightRate >= 0 ? '+' : ''}{trajectoryStats.heightRate.toFixed(2)}/day
-                      </p>
-                    ) : (
-                      <p className="text-[11px] font-bold text-slate-300">— awaiting forecast —</p>
-                    )}
-                    <MiniSparkline data={timeSeriesChartData} dataKey="plantHeightCm" color="#16a34a" gradientId="sparkHeight" />
-                  </div>
-
-                  {/* Final Leaves */}
-                  <div className="bg-white rounded-[2rem] p-6 border border-slate-200 shadow-sm flex flex-col gap-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                        <Leaf size={16} />
-                      </div>
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Final Leaves</p>
-                    </div>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-4xl font-black text-slate-900 tracking-tighter tabular-nums">
-                        {finalTimeSeriesPoint ? finalTimeSeriesPoint.numLeaves.toFixed(1) : '--'}
-                      </span>
-                      <span className="text-xs font-black text-slate-400 uppercase tracking-tighter">leaves</span>
-                    </div>
-                    {trajectoryStats ? (
-                      <p className="text-[11px] font-bold text-blue-600 tabular-nums">
-                        Δ {trajectoryStats.leafDelta >= 0 ? '+' : ''}{trajectoryStats.leafDelta.toFixed(1)} · {trajectoryStats.leafRate >= 0 ? '+' : ''}{trajectoryStats.leafRate.toFixed(2)}/day
-                      </p>
-                    ) : (
-                      <p className="text-[11px] font-bold text-slate-300">— awaiting forecast —</p>
-                    )}
-                    <MiniSparkline data={timeSeriesChartData} dataKey="numLeaves" color="#2563eb" gradientId="sparkLeaves" />
-                  </div>
-
-                  {/* Total NS */}
-                  <div className="bg-white rounded-[2rem] p-6 border border-slate-200 shadow-sm flex flex-col gap-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center">
-                        <Droplets size={16} />
-                      </div>
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Total NS Supply</p>
-                    </div>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-4xl font-black text-slate-900 tracking-tighter tabular-nums">
-                        {timeSeriesChartData.length ? totalNsSupply.toFixed(2) : '--'}
-                      </span>
-                      <span className="text-xs font-black text-slate-400 uppercase tracking-tighter">L/plant</span>
-                    </div>
-                    {trajectoryStats ? (
-                      <div className="flex flex-wrap gap-1.5 text-[10px] font-black uppercase tracking-widest">
-                        <span className="px-2 py-0.5 rounded-md bg-orange-50 text-orange-600 tabular-nums">Fresh {trajectoryStats.freshTotal.toFixed(1)}L</span>
-                        <span className="px-2 py-0.5 rounded-md bg-cyan-50 text-cyan-600 tabular-nums">Added {trajectoryStats.addedTotal.toFixed(1)}L</span>
-                      </div>
-                    ) : (
-                      <p className="text-[11px] font-bold text-slate-300">— awaiting forecast —</p>
-                    )}
-                    <MiniSparkline data={trajectoryStats?.cumulativeNs} dataKey="cum" color="#06b6d4" gradientId="sparkNs" />
-                  </div>
-
-                  {/* NS Recommendation */}
-                  <div className="bg-slate-900 rounded-[2rem] p-6 text-white shadow-lg flex flex-col gap-3">
-                    <div className="flex items-center gap-2">
-                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
-                        firstNsAction?.nsAction === 'replace'
-                          ? 'bg-red-500/20 text-red-300'
-                          : firstNsAction?.nsAction === 'add'
-                          ? 'bg-orange-500/20 text-orange-300'
-                          : 'bg-slate-700 text-slate-400'
-                      }`}>
-                        <AlertCircle size={16} />
-                      </div>
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Next NS Action</p>
-                    </div>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-3xl font-black tracking-tighter tabular-nums">
-                        {firstNsAction ? `Day ${firstNsAction.day}` : 'Idle'}
-                      </span>
-                      {firstNsAction?.nsAction && (
-                        <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md ${
-                          firstNsAction.nsAction === 'replace' ? 'bg-red-500 text-white' : 'bg-orange-500 text-white'
-                        }`}>
-                          {firstNsAction.nsAction}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs font-semibold text-slate-300 leading-relaxed line-clamp-2">
-                      {firstNsAction?.nsRecommendation || 'Run the forecast to generate an NS recommendation.'}
-                    </p>
-                    {/* Event timeline strip */}
-                    {trajectoryStats && trajectoryStats.actionDays.length > 0 && (
-                      <div className="mt-auto pt-2">
-                        <div className="relative h-1 bg-slate-700 rounded-full">
-                          {trajectoryStats.actionDays.map(p => {
-                            const span = Math.max(1, trajectoryStats.endDay - trajectoryStats.startDay)
-                            const pos = ((p.day - trajectoryStats.startDay) / span) * 100
-                            const color = p.nsAction === 'replace' ? 'bg-red-400' : 'bg-orange-400'
-                            return (
-                              <span
-                                key={p.day}
-                                className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2 h-2 rounded-full ${color}`}
-                                style={{ left: `${pos}%` }}
-                                title={`Day ${p.day} · ${p.nsAction}`}
-                              />
-                            )
-                          })}
-                        </div>
-                        <div className="flex justify-between text-[9px] font-black text-slate-500 uppercase tracking-widest mt-1.5 tabular-nums">
-                          <span>D{trajectoryStats.startDay}</span>
-                          <span>{trajectoryStats.actionDays.length} action{trajectoryStats.actionDays.length === 1 ? '' : 's'}</span>
-                          <span>D{trajectoryStats.endDay}</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-              <div className="bg-white rounded-[3rem] p-8 border border-slate-200 shadow-sm">
-                <div className="mb-8 flex flex-wrap items-end justify-between gap-3">
-                  <div>
-                    <h3 className="text-xl font-black flex items-center gap-3">
-                      <TrendingUp size={24} className="text-brand-600" /> Growth Trajectory
-                    </h3>
-                    {trajectoryStats ? (
-                      <p className="text-xs font-bold text-slate-500 mt-2 tabular-nums">
-                        {trajectoryStats.days} days · D{trajectoryStats.startDay}–D{trajectoryStats.endDay}
-                        <span className="mx-2 text-slate-300">·</span>
-                        <span className="text-brand-600">+{trajectoryStats.heightDelta.toFixed(1)} cm</span>
-                        <span className="mx-2 text-slate-300">·</span>
-                        <span className="text-blue-600">+{trajectoryStats.leafDelta.toFixed(1)} leaves</span>
-                        <span className="mx-2 text-slate-300">·</span>
-                        <span className="text-cyan-600">{(trajectoryStats.freshTotal + trajectoryStats.addedTotal).toFixed(2)} L NS</span>
-                      </p>
-                    ) : (
-                      <p className="text-xs font-bold text-slate-400 mt-2">Run the time-series forecast to populate the curves.</p>
-                    )}
-                  </div>
-                </div>
-
+              {/* Sparkline column docked below the output panel */}
+              <div
+                className="pointer-events-auto shrink-0"
+                onMouseDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+              >
                 {timeSeriesChartData.length > 0 ? (
-                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-                    {/* Plant Height */}
-                    <div>
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-full bg-brand-600" />
-                          <p className="text-sm font-black text-slate-900">Plant Height</p>
-                        </div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">cm</p>
-                      </div>
-                      <div className="h-[280px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={timeSeriesChartData} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
-                            <defs>
-                              <linearGradient id="heightFill" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="#16a34a" stopOpacity={0.45} />
-                                <stop offset="100%" stopColor="#16a34a" stopOpacity={0} />
-                              </linearGradient>
-                            </defs>
-                            <CartesianGrid stroke="#f1f5f9" vertical={false} />
-                            <XAxis dataKey="day" stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} tickFormatter={d => `D${d}`} />
-                            <YAxis stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={36} tickFormatter={v => v.toFixed(0)} />
-                            <Tooltip content={<GrowthTooltip />} cursor={{ stroke: '#cbd5e1', strokeDasharray: '4 4' }} />
-                            <Area
-                              type="monotone"
-                              dataKey="plantHeightCm"
-                              name="Plant Height (cm)"
-                              stroke="#16a34a"
-                              strokeWidth={2.5}
-                              fill="url(#heightFill)"
-                              dot={false}
-                              activeDot={{ r: 5, fill: '#16a34a', stroke: 'white', strokeWidth: 3 }}
-                            />
-                          </AreaChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-
-                    {/* Leaf Count */}
-                    <div>
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-full bg-blue-600" />
-                          <p className="text-sm font-black text-slate-900">Leaf Count</p>
-                        </div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">leaves</p>
-                      </div>
-                      <div className="h-[280px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={timeSeriesChartData} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
-                            <defs>
-                              <linearGradient id="leafFill" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="#2563eb" stopOpacity={0.45} />
-                                <stop offset="100%" stopColor="#2563eb" stopOpacity={0} />
-                              </linearGradient>
-                            </defs>
-                            <CartesianGrid stroke="#f1f5f9" vertical={false} />
-                            <XAxis dataKey="day" stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} tickFormatter={d => `D${d}`} />
-                            <YAxis stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={36} tickFormatter={v => v.toFixed(0)} />
-                            <Tooltip content={<GrowthTooltip />} cursor={{ stroke: '#cbd5e1', strokeDasharray: '4 4' }} />
-                            <Area
-                              type="monotone"
-                              dataKey="numLeaves"
-                              name="Leaf Count"
-                              stroke="#2563eb"
-                              strokeWidth={2.5}
-                              fill="url(#leafFill)"
-                              dot={false}
-                              activeDot={{ r: 5, fill: '#2563eb', stroke: 'white', strokeWidth: 3 }}
-                            />
-                          </AreaChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-
-                    {/* NS daily action bars */}
-                    <div className="xl:col-span-2">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-full bg-orange-500" />
-                          <p className="text-sm font-black text-slate-900">Nutrient Solution Schedule</p>
-                        </div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                          L per plant · {trajectoryStats?.actionDays.length ?? 0} action{trajectoryStats?.actionDays.length === 1 ? '' : 's'}
-                        </p>
-                      </div>
-                      <div className="h-[260px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={timeSeriesChartData} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
-                            <CartesianGrid stroke="#f1f5f9" vertical={false} />
-                            <XAxis dataKey="day" stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} tickFormatter={d => `D${d}`} />
-                            <YAxis stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={40} tickFormatter={v => `${v.toFixed(1)}L`} />
-                            <Tooltip content={<NsBarTooltip />} cursor={{ fill: '#f1f5f9' }} />
-                            <Bar dataKey="actionVolume" name="Action Volume (L)" radius={[4, 4, 0, 0]} maxBarSize={28}>
-                              {timeSeriesChartData.map((entry, idx) => (
-                                <Cell
-                                  key={idx}
-                                  fill={
-                                    entry.nsAction === 'replace' ? '#dc2626' :
-                                    entry.nsAction === 'add' ? '#f97316' :
-                                    '#e2e8f0'
-                                  }
-                                />
-                              ))}
-                            </Bar>
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                      {/* Legend */}
-                      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-4 text-[11px] font-black uppercase tracking-widest text-slate-500">
-                        <span className="flex items-center gap-2">
-                          <span className="w-3 h-3 rounded-sm bg-orange-500" /> Add
-                        </span>
-                        <span className="flex items-center gap-2">
-                          <span className="w-3 h-3 rounded-sm bg-red-600" /> Replace
-                        </span>
-                        <span className="flex items-center gap-2">
-                          <span className="w-3 h-3 rounded-sm bg-slate-200" /> Idle
-                        </span>
-                      </div>
-
-                      {/* Schedule table — actionable list of upcoming events */}
-                      {trajectoryStats && trajectoryStats.actionDays.length > 0 && (
-                        <div className="mt-6 rounded-[2rem] bg-slate-50 border border-slate-100 p-5">
-                          <div className="flex items-center justify-between mb-4">
-                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Upcoming Actions</p>
-                            {trajectoryStats.actionDays.length > 5 && (
-                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                                showing 5 of {trajectoryStats.actionDays.length}
-                              </p>
-                            )}
-                          </div>
-                          <div className="space-y-2">
-                            {trajectoryStats.actionDays.slice(0, 5).map(p => {
-                              const isReplace = p.nsAction === 'replace'
-                              return (
-                                <div
-                                  key={p.day}
-                                  className="flex items-center gap-4 bg-white rounded-2xl px-4 py-3 border border-slate-100 hover:border-slate-200 transition-colors"
-                                >
-                                  <div className="text-center shrink-0 w-14">
-                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Day</p>
-                                    <p className="text-2xl font-black text-slate-900 leading-none tabular-nums">{p.day}</p>
-                                  </div>
-                                  <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md shrink-0 text-white ${isReplace ? 'bg-red-600' : 'bg-orange-500'}`}>
-                                    {p.nsAction}
-                                  </span>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-xs font-bold text-slate-700 truncate">
-                                      {p.nsRecommendation || (isReplace ? 'Replace nutrient solution' : `Add ${p.actionVolume.toFixed(2)}L nutrient solution`)}
-                                    </p>
-                                    {p.nsPolicy && (
-                                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">
-                                        {p.nsPolicy} policy · EC {p.ecLimit}
-                                      </p>
-                                    )}
-                                  </div>
-                                  <p className="text-sm font-black text-slate-900 tabular-nums shrink-0">
-                                    {p.actionVolume.toFixed(2)} <span className="text-[10px] text-slate-400 font-bold">L</span>
-                                  </p>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {timeSeriesResult && (
-                        <div className="mt-8">
-                          <AdvisorPanel suggestions={timeSeriesAdvisorSuggestions} />
-                        </div>
-                      )}
-
-                      {timeSeriesResult && (
-                        <div className="mt-8 bg-white rounded-[3rem] p-8 border border-slate-200 shadow-sm">
-                          <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-                            <div>
-                              <h3 className="text-xl font-black flex items-center gap-3">
-                                <TrendingUp size={22} className="text-brand-600" /> Growth Before vs After
-                              </h3>
-                            </div>
-                            {bestGrowthLoading && (
-                              <div className="px-4 py-2 rounded-2xl bg-slate-100 text-slate-500 text-xs font-black uppercase tracking-widest flex items-center gap-2">
-                                <RefreshCw size={14} className="animate-spin" /> Searching
-                              </div>
-                            )}
-                          </div>
-
-                          {bestGrowth ? (
-                            <div className="space-y-5">
-                              <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-                                <div>
-                                  <div className="flex items-center justify-between mb-3">
-                                    <div className="flex items-center gap-4 text-[11px] font-black uppercase tracking-widest">
-                                      <span className="flex items-center gap-2 text-slate-500"><span className="w-3 h-3 rounded-full bg-slate-400" /> Before</span>
-                                      {bestGrowth.hasImprovement && (
-                                        <span className="flex items-center gap-2 text-emerald-600"><span className="w-3 h-3 rounded-full bg-emerald-500" /> After</span>
-                                      )}
-                                    </div>
-                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">height cm</p>
-                                  </div>
-                                  <div className="h-[280px]">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                      <AreaChart data={bestGrowth.comparisonData} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
-                                        <CartesianGrid stroke="#f1f5f9" vertical={false} />
-                                        <XAxis dataKey="day" stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} tickFormatter={d => `D${d}`} />
-                                        <YAxis stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={36} tickFormatter={v => v.toFixed(0)} />
-                                        <Tooltip cursor={{ stroke: '#cbd5e1', strokeDasharray: '4 4' }} />
-                                        <Area type="monotone" dataKey="currentHeight" name="Before Height" stroke="#94a3b8" strokeWidth={2.5} fill="#94a3b8" fillOpacity={0.08} dot={false} />
-                                        {bestGrowth.hasImprovement && (
-                                          <Area type="monotone" dataKey="recommendedHeight" name="After Height" stroke="#16a34a" strokeWidth={2.5} fill="#16a34a" fillOpacity={0.16} dot={false} />
-                                        )}
-                                      </AreaChart>
-                                    </ResponsiveContainer>
-                                  </div>
-                                </div>
-
-                                <div>
-                                  <div className="flex items-center justify-between mb-3">
-                                    <div className="flex items-center gap-4 text-[11px] font-black uppercase tracking-widest">
-                                      <span className="flex items-center gap-2 text-slate-500"><span className="w-3 h-3 rounded-full bg-slate-400" /> Before</span>
-                                      {bestGrowth.hasImprovement && (
-                                        <span className="flex items-center gap-2 text-blue-600"><span className="w-3 h-3 rounded-full bg-blue-500" /> After</span>
-                                      )}
-                                    </div>
-                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">leaves</p>
-                                  </div>
-                                  <div className="h-[280px]">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                      <AreaChart data={bestGrowth.comparisonData} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
-                                        <CartesianGrid stroke="#f1f5f9" vertical={false} />
-                                        <XAxis dataKey="day" stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} tickFormatter={d => `D${d}`} />
-                                        <YAxis stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={36} tickFormatter={v => v.toFixed(0)} />
-                                        <Tooltip cursor={{ stroke: '#cbd5e1', strokeDasharray: '4 4' }} />
-                                        <Area type="monotone" dataKey="currentLeaves" name="Before Leaves" stroke="#94a3b8" strokeWidth={2.5} fill="#94a3b8" fillOpacity={0.08} dot={false} />
-                                        {bestGrowth.hasImprovement && (
-                                          <Area type="monotone" dataKey="recommendedLeaves" name="After Leaves" stroke="#2563eb" strokeWidth={2.5} fill="#2563eb" fillOpacity={0.16} dot={false} />
-                                        )}
-                                      </AreaChart>
-                                    </ResponsiveContainer>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="rounded-2xl bg-slate-50 border border-dashed border-slate-200 p-6 text-sm font-bold text-slate-400 text-center">
-                              {bestGrowthLoading ? 'Searching all tested growth combinations...' : 'Run prediction to generate the before and after comparison.'}
-                            </div>
-                          )}
-                        </div>
-                      )}
+                  <div className="rounded-3xl border border-ink-700 bg-ink-900/82 p-2 backdrop-blur-xl shadow-[0_24px_60px_-24px_rgba(0,0,0,0.7)]">
+                    <div className="flex flex-col gap-2">
+                      <SparklineCard
+                        label="Plant Height"
+                        value={finalTimeSeriesPoint ? finalTimeSeriesPoint.plantHeightCm.toFixed(1) : '—'}
+                        unit="cm"
+                        data={timeSeriesChartData}
+                        dataKey="plantHeightCm"
+                        color="#22c55e"
+                        onExpand={() => setDetailOpen('height')}
+                        loading={timeSeriesLoading}
+                      />
+                      <SparklineCard
+                        label="Leaf Count"
+                        value={finalTimeSeriesPoint ? finalTimeSeriesPoint.numLeaves.toFixed(1) : '—'}
+                        unit="leaves"
+                        data={timeSeriesChartData}
+                        dataKey="numLeaves"
+                        color="#38bdf8"
+                        onExpand={() => setDetailOpen('leaf')}
+                        loading={timeSeriesLoading}
+                      />
+                      <SparklineCard
+                        label="NS Supply"
+                        value={timeSeriesChartData.length ? totalNsSupply.toFixed(2) : '—'}
+                        unit="L/plant"
+                        data={trajectoryStats?.cumulativeNs}
+                        dataKey="cum"
+                        color="#fb923c"
+                        onExpand={() => setDetailOpen('ns')}
+                        loading={timeSeriesLoading}
+                      />
                     </div>
                   </div>
                 ) : (
-                  <div className="h-[420px] flex flex-col items-center justify-center border-2 border-dashed border-slate-100 rounded-[2rem] text-slate-400 bg-slate-50/50">
-                    <EmptyChartState />
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveWorkflow('growth')}
+                    className="group flex w-full items-center justify-center gap-2 rounded-full border border-ink-700 bg-ink-900/80 px-5 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-slate-400 backdrop-blur-xl transition-colors hover:border-brand-500/70 hover:text-brand-400"
+                  >
+                    <Leaf size={12} className="text-brand-500" />
+                    View growth result
+                    <ChevronRight size={12} className="transition-transform group-hover:translate-x-0.5" />
+                  </button>
                 )}
               </div>
+
+              </div>
+            </aside>
+          </div>
+        </main>
+      </div>
+
+      {/* Compare modal */}
+      {compareOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/85 backdrop-blur-md"
+          onMouseDown={() => setCompareOpen(false)}
+        >
+          <div
+            className="m-4 max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-3xl border border-ink-700 bg-ink-900/95 shadow-2xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-ink-700/60 px-5 py-3.5">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-brand-500">Compare</p>
+                <p className="text-sm font-black text-slate-100">
+                  {yieldRun ? 'Yield Before vs After' : 'Growth Before vs After'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCompareOpen(false)}
+                className="rounded-full p-1.5 text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-100"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="scrollbar-thin max-h-[calc(90vh-4rem)] overflow-y-auto p-5">
+              {yieldRun ? (
+                bestYield ? (
+                  <div className="space-y-4">
+                    <div className="rounded-2xl border border-ink-700 bg-ink-850/60 p-4">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        Tested {bestYield.testedCount} candidate{bestYield.testedCount === 1 ? '' : 's'}
+                      </p>
+                      <p className="mt-1 text-sm font-bold text-slate-200">
+                        Best: <span className="text-brand-400">{bestYield.best.label}</span>
+                        <span className="ml-2 text-slate-500">Δ {bestYield.improvement >= 0 ? '+' : ''}{bestYield.improvement.toFixed(2)} kg/m²</span>
+                      </p>
+                    </div>
+                    <div className="h-[300px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={[
+                            { label: 'Before', yield: bestYield.currentYield },
+                            { label: 'After',  yield: bestYield.best.predictedYield },
+                          ]}
+                          margin={{ top: 12, right: 16, left: 0, bottom: 0 }}
+                        >
+                          <CartesianGrid stroke="#1a3d2a" vertical={false} />
+                          <XAxis dataKey="label" stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} />
+                          <YAxis stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={44} tickFormatter={(v) => v.toFixed(1)} />
+                          <Tooltip cursor={{ fill: '#0a1a12' }} contentStyle={{ background: '#0a1a12', border: '1px solid #1a3d2a', borderRadius: 12, color: '#e2e8f0' }} formatter={(v) => [`${Number(v).toFixed(2)} kg/m²`, 'Predicted Yield']} />
+                          <Bar dataKey="yield" radius={[8, 8, 0, 0]} maxBarSize={90}>
+                            <Cell fill="#475569" />
+                            <Cell fill="#16a34a" />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="rounded-2xl border border-ink-700 bg-ink-850/60 p-4">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Changes</p>
+                      <ul className="space-y-1 text-xs font-semibold text-slate-300">
+                        {bestYield.best.changes.map((c, i) => (
+                          <li key={i} className="flex gap-2">
+                            <span className="text-brand-500">▸</span> {c}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="rounded-2xl border border-dashed border-ink-700 bg-ink-900/40 p-6 text-center text-sm font-bold text-slate-500">
+                    Run a yield simulation first to enable comparison.
+                  </p>
+                )
+              ) : (
+                bestGrowth ? (
+                  <div className="space-y-4">
+                    <div className="rounded-2xl border border-ink-700 bg-ink-850/60 p-4">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        Tested {bestGrowth.testedCount} candidate{bestGrowth.testedCount === 1 ? '' : 's'}
+                      </p>
+                      <p className="mt-1 text-sm font-bold text-slate-200">
+                        Best: <span className="text-brand-400">{bestGrowth.best.label}</span>
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <div>
+                        <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-slate-500">Plant Height</p>
+                        <div className="h-[240px]">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={bestGrowth.comparisonData} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+                              <CartesianGrid stroke="#1a3d2a" vertical={false} />
+                              <XAxis dataKey="day" stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} tickFormatter={(d) => `D${d}`} />
+                              <YAxis stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={36} tickFormatter={(v) => v.toFixed(0)} />
+                              <Tooltip content={<GrowthTooltip />} cursor={{ stroke: '#475569', strokeDasharray: '4 4' }} />
+                              <Area type="monotone" dataKey="currentHeight" name="Before Height" stroke="#64748b" strokeWidth={2.2} fill="#64748b" fillOpacity={0.1} dot={false} />
+                              {bestGrowth.hasImprovement && (
+                                <Area type="monotone" dataKey="recommendedHeight" name="After Height" stroke="#22c55e" strokeWidth={2.5} fill="#22c55e" fillOpacity={0.18} dot={false} />
+                              )}
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                      <div>
+                        <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-slate-500">Leaves</p>
+                        <div className="h-[240px]">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={bestGrowth.comparisonData} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+                              <CartesianGrid stroke="#1a3d2a" vertical={false} />
+                              <XAxis dataKey="day" stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} tickFormatter={(d) => `D${d}`} />
+                              <YAxis stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={36} tickFormatter={(v) => v.toFixed(0)} />
+                              <Tooltip content={<GrowthTooltip />} cursor={{ stroke: '#475569', strokeDasharray: '4 4' }} />
+                              <Area type="monotone" dataKey="currentLeaves" name="Before Leaves" stroke="#64748b" strokeWidth={2.2} fill="#64748b" fillOpacity={0.1} dot={false} />
+                              {bestGrowth.hasImprovement && (
+                                <Area type="monotone" dataKey="recommendedLeaves" name="After Leaves" stroke="#38bdf8" strokeWidth={2.5} fill="#38bdf8" fillOpacity={0.18} dot={false} />
+                              )}
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-ink-700 bg-ink-850/60 p-4">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Changes</p>
+                      <ul className="space-y-1 text-xs font-semibold text-slate-300">
+                        {bestGrowth.best.changes.map((c, i) => (
+                          <li key={i} className="flex gap-2">
+                            <span className="text-brand-500">▸</span> {c}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="rounded-2xl border border-dashed border-ink-700 bg-ink-900/40 p-6 text-center text-sm font-bold text-slate-500">
+                    Run the integrated prediction first to enable comparison.
+                  </p>
+                )
+              )}
             </div>
           </div>
-        </section>
-      </main>
-
-      {error && (
-        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-red-600 text-white px-8 py-4 rounded-2xl shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-10 z-[100]">
-          <AlertCircle size={20} />
-          <span className="text-sm font-bold">{error}</span>
-          <button onClick={() => setError('')} className="p-1 hover:bg-white/20 rounded-lg"><X size={16} /></button>
         </div>
-      )}
+      ) : null}
 
-      <style dangerouslySetInnerHTML={{ __html: `
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
-      ` }} />
+      {/* Detail modal — sparkline expand */}
+      {detailOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/85 backdrop-blur-md"
+          onMouseDown={() => setDetailOpen(null)}
+        >
+          <div
+            className="m-4 max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-3xl border border-ink-700 bg-ink-900/95 shadow-2xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-ink-700/60 px-5 py-3.5">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-brand-500">Trajectory</p>
+                <p className="text-sm font-black text-slate-100">
+                  {detailOpen === 'height' && 'Plant Height (cm)'}
+                  {detailOpen === 'leaf'   && 'Leaf Count'}
+                  {detailOpen === 'ns'     && 'Nutrient Solution Schedule'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailOpen(null)}
+                className="rounded-full p-1.5 text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-100"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-5">
+              {timeSeriesChartData.length === 0 ? (
+                <p className="rounded-2xl border border-dashed border-ink-700 bg-ink-900/40 p-6 text-center text-sm font-bold text-slate-500">
+                  Run the integrated prediction first.
+                </p>
+              ) : (
+                <div className="h-[400px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    {detailOpen === 'ns' ? (
+                      <BarChart data={timeSeriesChartData} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+                        <CartesianGrid stroke="#1a3d2a" vertical={false} />
+                        <XAxis dataKey="day" stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} tickFormatter={(d) => `D${d}`} />
+                        <YAxis stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={40} tickFormatter={(v) => `${v.toFixed(1)}L`} />
+                        <Tooltip content={<NsBarTooltip />} cursor={{ fill: '#0a1a12' }} />
+                        <Bar dataKey="actionVolume" name="Action Volume (L)" radius={[4, 4, 0, 0]} maxBarSize={28}>
+                          {timeSeriesChartData.map((entry, idx) => (
+                            <Cell
+                              key={idx}
+                              fill={
+                                entry.nsAction === 'replace' ? '#dc2626' :
+                                entry.nsAction === 'add'     ? '#f97316' :
+                                                                '#1f2937'
+                              }
+                            />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    ) : (
+                      <AreaChart data={timeSeriesChartData} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="detailFill" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%"   stopColor={detailOpen === 'height' ? '#22c55e' : '#38bdf8'} stopOpacity={0.45} />
+                            <stop offset="100%" stopColor={detailOpen === 'height' ? '#22c55e' : '#38bdf8'} stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid stroke="#1a3d2a" vertical={false} />
+                        <XAxis dataKey="day" stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} tickFormatter={(d) => `D${d}`} />
+                        <YAxis stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={36} tickFormatter={(v) => v.toFixed(0)} />
+                        <Tooltip content={<GrowthTooltip />} cursor={{ stroke: '#475569', strokeDasharray: '4 4' }} />
+                        <Area
+                          type="monotone"
+                          dataKey={detailOpen === 'height' ? 'plantHeightCm' : 'numLeaves'}
+                          name={detailOpen === 'height' ? 'Plant Height (cm)' : 'Leaf Count'}
+                          stroke={detailOpen === 'height' ? '#22c55e' : '#38bdf8'}
+                          strokeWidth={2.5}
+                          fill="url(#detailFill)"
+                          dot={false}
+                          activeDot={{ r: 5, fill: detailOpen === 'height' ? '#22c55e' : '#38bdf8', stroke: '#0a1a12', strokeWidth: 3 }}
+                        />
+                      </AreaChart>
+                    )}
+                  </ResponsiveContainer>
+                </div>
+              )}
+              {detailOpen === 'ns' && trajectoryStats && trajectoryStats.actionDays.length > 0 ? (
+                <div className="mt-4 rounded-2xl border border-ink-700 bg-ink-850/60 p-4">
+                  <p className="mb-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Upcoming Actions</p>
+                  <div className="space-y-2">
+                    {trajectoryStats.actionDays.slice(0, 6).map(p => {
+                      const isReplace = p.nsAction === 'replace'
+                      return (
+                        <div key={p.day} className="flex items-center gap-3 rounded-xl border border-ink-700 bg-ink-900/50 px-3 py-2">
+                          <div className="w-12 shrink-0 text-center">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Day</p>
+                            <p className="text-lg font-black tabular-nums text-slate-100 leading-none">{p.day}</p>
+                          </div>
+                          <span className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-white ${isReplace ? 'bg-red-600' : 'bg-orange-500'}`}>
+                            {p.nsAction}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-xs font-bold text-slate-200">
+                              {p.nsRecommendation || (isReplace ? 'Replace nutrient solution' : `Add ${p.actionVolume.toFixed(2)}L nutrient solution`)}
+                            </p>
+                          </div>
+                          <p className="shrink-0 text-sm font-black tabular-nums text-slate-100">
+                            {p.actionVolume.toFixed(2)} <span className="text-[10px] font-bold text-slate-500">L</span>
+                          </p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Advisor modal */}
+      {advisorOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/85 backdrop-blur-md"
+          onMouseDown={() => setAdvisorOpen(false)}
+        >
+          <div
+            className="m-4 flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-ink-700 bg-ink-900/95 shadow-2xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-ink-700/60 px-5 py-3.5">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-brand-500">Advisor</p>
+                <p className="text-sm font-black text-slate-100">
+                  {yieldRun ? 'Yield Optimization Tips' : 'Time-Series Optimization Tips'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAdvisorOpen(false)}
+                className="rounded-full p-1.5 text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-100"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="scrollbar-thin flex-1 overflow-y-auto p-5">
+              <AdvisorPanel
+                suggestions={yieldRun ? advisorSuggestions : timeSeriesAdvisorSuggestions}
+                dark
+                embed
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Error toast */}
+      {error ? (
+        <div className="fixed bottom-32 left-1/2 z-40 -translate-x-1/2 flex items-center gap-3 rounded-2xl border border-red-700/60 bg-red-950/85 px-5 py-3 text-red-200 shadow-2xl backdrop-blur-md">
+          <AlertCircle size={16} />
+          <span className="text-sm font-bold">{error}</span>
+          <button onClick={() => setError('')} className="rounded-lg p-1 text-red-300 hover:bg-red-900/40">
+            <X size={14} />
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 }
