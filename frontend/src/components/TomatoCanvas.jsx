@@ -198,7 +198,7 @@ function ModelInsightPanel({ metrics, prediction }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function GroundShadow() {
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -1.21, 0]} receiveShadow>
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -1.81, 0]} receiveShadow>
       <planeGeometry args={[12, 12]} />
       <shadowMaterial transparent opacity={0.18} />
     </mesh>
@@ -530,7 +530,7 @@ function useOrganicIdle(groupRef, visualRef) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Tomato model — colours overridden directly, no part position/scale changes
 // ─────────────────────────────────────────────────────────────────────────────
-function TomatoModel({ metrics, prediction }) {
+function TomatoModel({ metrics, prediction, hero = false }) {
   const { scene }   = useGLTF('/models/tomato.glb')
   const groupRef    = useRef()
   const visualRef   = useRef({ metrics, prediction })
@@ -582,12 +582,13 @@ function TomatoModel({ metrics, prediction }) {
     const yieldBoost = predictionScore == null ? 0 : predictionScore - 0.5
 
     // Whole plant scale
-    const plantScale =
-      remap(health, 0, 1, 0.55, 1.2)  *
-      remap(co2,  300, 2000, 0.88, 1.12) *
-      remap(photo,  0,   18, 0.78, 1.08) *
-      remap(light,  0, 80000, 0.82, 1.10) *
-      (1 + yieldBoost * 0.18)
+    const plantScale = hero
+      ? 0.96
+      : remap(health, 0, 1, 0.55, 1.2)  *
+        remap(co2,  300, 2000, 0.88, 1.12) *
+        remap(photo,  0,   18, 0.78, 1.08) *
+        remap(light,  0, 80000, 0.82, 1.10) *
+        (1 + yieldBoost * 0.18)
     groupRef.current.userData.baseScale = 2.5 * plantScale
 
     // ── Fruit colour: override completely, ignore original material tint ──────
@@ -651,7 +652,7 @@ function TomatoModel({ metrics, prediction }) {
   }, [metrics, prediction, scene, parts])
 
   return scene ? (
-    <group ref={groupRef} position={[0, -1.2, 0]}>
+    <group ref={groupRef} position={[0, -1.8, 0]}>
       <primitive object={scene} />
     </group>
   ) : null
@@ -695,7 +696,7 @@ function DynamicLighting({ metrics }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Main export
 // ─────────────────────────────────────────────────────────────────────────────
-const TomatoCanvas = ({ metrics, prediction }) => {
+const TomatoCanvas = ({ metrics, prediction, hero = false, rainy = false, darkBg = false }) => {
   if (!metrics) return null
 
   const humidity  = parseFloat(metrics.humidityPercent   || 70)
@@ -703,9 +704,11 @@ const TomatoCanvas = ({ metrics, prediction }) => {
   const co2       = parseFloat(metrics.co2Ppm            || 800)
   const pestLevel = parseFloat(metrics.pestSeverity      || 0)
 
+  const darkScene = hero || darkBg
+
   return (
     <div className="h-full w-full relative overflow-hidden">
-      <ModelInsightPanel metrics={metrics} prediction={prediction} />
+      {!darkScene && <ModelInsightPanel metrics={metrics} prediction={prediction} />}
       <Canvas
         shadows
         camera={{ position: [0, 2, 6], fov: 40 }}
@@ -716,21 +719,54 @@ const TomatoCanvas = ({ metrics, prediction }) => {
         }}
       >
         <DynamicLighting metrics={metrics} />
+        {darkScene && (
+          <>
+            <ambientLight intensity={rainy ? 0.5 : 0.45} color={rainy ? '#cfe0f0' : '#dbeafe'} />
+            <directionalLight
+              position={[3, 6, 4]}
+              intensity={rainy ? 0.9 : 1.4}
+              color={rainy ? '#d4dde8' : '#fff7d6'}
+              castShadow
+            />
+            <spotLight
+              position={[-4, 5, 3]}
+              angle={0.45}
+              penumbra={0.8}
+              intensity={rainy ? 0.7 : 1.1}
+              color={rainy ? '#9ec0d8' : '#9af7c5'}
+            />
+            <pointLight position={[0, 1.4, -3.5]} intensity={rainy ? 0.8 : 1.2} color="#34ff8e" />
+            <pointLight
+              position={[2.5, -0.5, 2]}
+              intensity={rainy ? 0.4 : 0.6}
+              color={rainy ? '#b6c7d8' : '#a7f3d0'}
+            />
+          </>
+        )}
 
         <Suspense fallback={null}>
-          <TomatoModel metrics={metrics} prediction={prediction} />
-          <RainSystem  humidity={humidity} />
-          <SunRays     lightIntensity={lightLux} />
-          <SunMotes    lightIntensity={lightLux} />
+          <TomatoModel metrics={metrics} prediction={prediction} hero={darkScene} />
+          {(!darkScene || rainy)  && <RainSystem humidity={humidity} />}
+          {!darkScene             && <SunRays    lightIntensity={lightLux} />}
+          {(!darkScene || !rainy) && <SunMotes   lightIntensity={lightLux} />}
           <CO2Mist     co2={co2} />
           <PestBugs    pestLevel={pestLevel} />
           <GroundShadow />
-          <Environment preset="forest" />
+          {darkScene && (
+            <gridHelper
+              args={[28, 56, '#1f5a3c', '#0f3322']}
+              position={[0, -1.805, 0]}
+            />
+          )}
+          <Environment preset={darkScene ? 'studio' : 'forest'} />
         </Suspense>
 
         <OrbitControls
           enableZoom={false}
+          enablePan={false}
           makeDefault
+          autoRotate={darkScene}
+          autoRotateSpeed={darkScene ? 0.55 : 0}
           minPolarAngle={Math.PI / 3}
           maxPolarAngle={Math.PI / 1.8}
         />

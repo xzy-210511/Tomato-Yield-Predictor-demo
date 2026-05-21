@@ -3,13 +3,18 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    color-scheme: dark light;
+  }
   body {
     @apply bg-slate-50 text-slate-900 font-sans antialiased;
+  }
+  body.theme-dark {
+    @apply bg-ink-950 text-slate-100;
   }
 }
 
 @layer utilities {
-  /* Custom thin scrollbar */
   .scrollbar-thin::-webkit-scrollbar {
     height: 6px;
     width: 6px;
@@ -23,9 +28,31 @@
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
     @apply bg-slate-400;
   }
+
+  body.theme-dark .scrollbar-thin::-webkit-scrollbar-track {
+    @apply bg-ink-900;
+  }
+  body.theme-dark .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply bg-ink-700;
+  }
+  body.theme-dark .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    @apply bg-ink-600;
+  }
+
+  .text-glow {
+    text-shadow: 0 0 14px rgba(52, 255, 142, 0.55), 0 0 2px rgba(52, 255, 142, 0.9);
+  }
+  .text-glow-soft {
+    text-shadow: 0 0 10px rgba(52, 255, 142, 0.28);
+  }
+  .grid-bg {
+    background-image:
+      linear-gradient(rgba(52, 255, 142, 0.10) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(52, 255, 142, 0.10) 1px, transparent 1px);
+    background-size: 72px 72px;
+  }
 }
 
-/* Number input — hide spinners */
 input[type='number']::-webkit-inner-spin-button,
 input[type='number']::-webkit-outer-spin-button {
   -webkit-appearance: none;
