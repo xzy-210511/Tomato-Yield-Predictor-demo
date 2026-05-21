@@ -226,3 +226,11 @@ output:
 The project was checked across backend, frontend, model service, migrations, API helpers, static build output, and README instructions. Maven tests and frontend build checks were used as integration evidence, while Git status was used to confirm which files were changed.
 
 ========================================================
+User: Ling Fang
+Generative AI tool used: 
+
+Prompts and outputs
+
+
+
+========================================================
