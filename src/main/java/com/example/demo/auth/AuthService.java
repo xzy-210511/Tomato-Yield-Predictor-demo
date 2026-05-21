@@ -8,6 +8,8 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class AuthService {
 
+    private static final String BCRYPT_PREFIX = "$2";
+
     private final AppUserRepository appUserRepository;
     private final PasswordEncoder passwordEncoder;
 
@@ -38,10 +40,25 @@ public class AuthService {
                         "Invalid credentials"
                 ));
 
-        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+        if (!passwordMatches(request.getPassword(), user)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
         }
 
         return new AuthResponse(user);
+    }
+
+    private boolean passwordMatches(final String rawPassword, final AppUser user) {
+        final String storedPassword = user.getPassword();
+        if (storedPassword != null && storedPassword.startsWith(BCRYPT_PREFIX)) {
+            return passwordEncoder.matches(rawPassword, storedPassword);
+        }
+
+        if (storedPassword != null && storedPassword.equals(rawPassword)) {
+            user.setPassword(passwordEncoder.encode(rawPassword));
+            appUserRepository.save(user);
+            return true;
+        }
+
+        return false;
     }
 }
