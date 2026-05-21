@@ -157,7 +157,7 @@ password
 created_at
 ```
 
-The current implementation stores passwords as plain text to keep the prototype simple. This is only suitable for local demo use. Before real deployment, replace this with password hashing such as BCrypt.
+The `password` column stores a BCrypt password hash, not the original plaintext password. New registrations are hashed before storage. Legacy plaintext demo passwords are upgraded to BCrypt hash format after a successful login.
 
 `simulation_records` stores the history shown on the History page:
 
@@ -191,6 +191,8 @@ password: tomato_app
 port: 5432
 ```
 
+These credentials are for local development only. Production deployments should provide database credentials through environment variables or a secret manager, not hard-coded project files.
+
 ### Run Spring Boot against PostgreSQL
 
 Start the Python service first, then start Spring Boot with the `postgres` profile:
@@ -210,6 +212,52 @@ When `/api/predict` returns successfully, Spring Boot saves one row into `predic
 When `/api/auth/register` returns successfully, Spring Boot saves one row into `users`.
 
 When a logged-in user runs a yield or time-series prediction, the frontend saves one row into `simulation_records` through `/api/records`. If the user is not logged in, the prediction still runs but history is not saved.
+
+## Security and Data Privacy Notes
+
+This project stores user accounts and user-owned prediction history. The main security and privacy concerns are protecting login credentials, limiting access to saved records, and collecting only the data needed for the prototype workflow.
+
+### Password protection
+
+Passwords are protected with BCrypt one-way hashing using Spring Security Crypto. The server stores only the hash in the `users.password` column. During login, the submitted password is checked against the stored hash. Existing plaintext demo passwords are migrated to BCrypt after a successful login, so old local test accounts can still be used while moving away from plaintext storage.
+
+This follows OWASP Password Storage guidance: passwords should not be stored in plaintext or reversible encryption; they should be stored using an adaptive one-way password hashing algorithm.
+
+### Authentication limitations
+
+The current login state is still prototype-level. After login or registration, the frontend stores:
+
+```text
+localStorage.user
+localStorage.userId
+```
+
+The History API uses `userId` to load, rename, and delete records for the current user. Record update and delete operations check ownership by looking up records with both `recordId` and `userId`, but the backend still trusts a frontend-provided `userId`.
+
+For a production version, this should be replaced with server-side session authentication, JWT, or an HttpOnly cookie-based approach so the backend derives the current user from authenticated request state rather than from a client-provided ID.
+
+### Data minimisation and user control
+
+The application only collects data needed for the project workflow:
+
+- username
+- BCrypt password hash
+- prediction inputs
+- prediction outputs
+- saved simulation history metadata
+
+It does not collect email addresses, phone numbers, real names, or location data. Users can rename and delete saved simulation records from the History page.
+
+### Relevant privacy principles
+
+For an Australian deployment context, the design should be considered against the Australian Privacy Principles:
+
+- APP 3: collect only information reasonably necessary for the application
+- APP 5: notify users what information is collected and why
+- APP 6: use stored information only for the stated prediction-history purpose
+- APP 11: take reasonable steps to protect personal information
+
+Current implemented protections include BCrypt password hashing, PostgreSQL persistence for controlled storage, record ownership checks for rename/delete, and no logging of raw passwords. Remaining production considerations include HTTPS, stronger session/token-based authentication, and production-grade secret management.
 
 ### History page behavior
 
@@ -383,7 +431,7 @@ DELETE /api/records/{id}?userId={userId}
 
 `/api/auth/register` creates a new user if the username is not already taken.
 
-`/api/auth/login` checks the submitted username and password against the `users` table.
+`/api/auth/login` checks the submitted password against the BCrypt hash stored in the `users` table.
 
 The frontend stores the logged-in user's `username` and `userId` in `localStorage` after a successful login or registration. There is currently no token, session, or Spring Security layer.
 
