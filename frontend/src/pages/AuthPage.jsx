@@ -25,6 +25,14 @@ export default function AuthPage() {
       setError('Please enter username and password')
       return
     }
+    if (trimmedUsername.length < 3 || trimmedUsername.length > 50) {
+      setError('Username must be between 3 and 50 characters')
+      return
+    }
+    if (password.length < 8 || password.length > 255) {
+      setError('Password must be between 8 and 255 characters')
+      return
+    }
 
     setLoading(true)
     try {
