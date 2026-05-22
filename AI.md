@@ -82,6 +82,13 @@ Usage:
    - AI helped explain how daily climate summaries, interpolated daily crop-growth states, and nutrient-solution consumption records could be merged into one mapped training table.
    - AI helped explain the purpose of the mapped table used by the time-series nutrient-solution model.
 
+7. Help me debug the optimization candidate search in `findbest.js`
+   - `frontend/src/lib/findbest.js`
+   - The core optimization logic and implementation direction were Ling Fang's own work.
+   - AI was used to debug implementation difficulties in the result-judgement logic.
+   - AI helped identify that the optimized time-series result should not be judged only by requiring plant height and leaf number to increase at the same time.
+   - AI helped explain how the second optimization search needed reasonable parameter ranges and valid combinations, especially for temperature, humidity, CO2, lamp PAR, and light hours.
+
 ========================================================
 
 
