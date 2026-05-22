@@ -1,32 +1,45 @@
-import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
 import {
-  ChevronRight,
+  Activity,
+  AlertCircle,
   Droplets,
   FlaskConical,
   HelpCircle,
   Leaf,
-  Minus,
   RefreshCw,
-  Sparkles,
+  RotateCcw,
   Sprout,
   Thermometer,
   TrendingUp,
-  User,
   Wind,
+  X,
+  ChevronRight,
 } from 'lucide-react'
 import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
+  Cell,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts'
 import { predictTimeSeries } from '../api/predict'
-import NsScheduleTimeline from '../components/NsScheduleTimeline'
+import TomatoCanvas from '../components/TomatoCanvas.jsx'
+import TopNav from '../components/TopNav.jsx'
+import CollapsibleGroup from '../components/CollapsibleGroup.jsx'
+import SparklineCard from '../components/SparklineCard.jsx'
+import AdvisorPanel from '../components/AdvisorPanel'
+import { analyzeTimeSeriesInput } from '../lib/timeSeriesAdvisor'
+import {
+  buildTimeSeriesCandidates,
+  buildTimeSeriesComparison,
+  mapTimeSeriesPredictions,
+  summarizeTrajectory as summarizeTimeSeriesCandidate,
+} from '../lib/findbest'
 import {
   EC_OPTIONS,
   FIELD_INFO_TS,
@@ -34,153 +47,289 @@ import {
   LIGHT_OPTIONS,
   TS_GROUPS,
 } from '../lib/tsConfig'
-import { getPolicyInfo } from '../lib/nsPolicies'
 
-const POLICY_COLORS = {
-  cyan: { ring: 'ring-cyan-500', icon: 'bg-cyan-500', tag: 'bg-cyan-100 text-cyan-700' },
-  amber: { ring: 'ring-amber-500', icon: 'bg-amber-500', tag: 'bg-amber-100 text-amber-700' },
-  slate: { ring: 'ring-slate-500', icon: 'bg-slate-500', tag: 'bg-slate-100 text-slate-700' },
+const GROUP_ICON_MAP = {
+  Forecast: Thermometer,
+  Locked: Wind,
 }
 
-const POLICY_ICON_MAP = { Droplets, FlaskConical, HelpCircle }
-const GROUP_ICON_MAP = { Thermometer, Wind }
-
-function PolicyCard({ info, active }) {
-  const palette = POLICY_COLORS[info.color] || POLICY_COLORS.slate
-  const Icon = POLICY_ICON_MAP[info.icon] || HelpCircle
+function GrowthTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null
   return (
-    <div
-      className={`bg-white rounded-[2.5rem] p-7 border border-slate-200 transition-all ${
-        active ? `ring-2 ${palette.ring} shadow-lg` : 'opacity-60 hover:opacity-100'
+    <div className="rounded-2xl border border-ink-700 bg-ink-900/95 px-4 py-3 text-white shadow-2xl backdrop-blur-md min-w-[180px]">
+      <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+        Day {label} · DAT
+      </p>
+      {payload.map(item => (
+        <div key={item.dataKey} className="flex items-center gap-3 py-0.5 text-xs font-bold">
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: item.color }} />
+          <span className="mr-auto text-slate-300">{item.name}</span>
+          <span className="font-black tabular-nums">{Number(item.value).toFixed(2)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function NsTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null
+  const point = payload[0].payload
+  return (
+    <div className="max-w-[260px] rounded-2xl border border-ink-700 bg-ink-900/95 px-4 py-3 text-white shadow-2xl backdrop-blur-md">
+      <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+        Day {label} · DAT
+      </p>
+      <p className="text-sm font-black tabular-nums">
+        {point.actionVolume > 0 ? `${point.actionVolume.toFixed(2)} L/plant` : 'No action'}
+      </p>
+      {point.nsRecommendation ? (
+        <p className="mt-1 text-[11px] font-semibold leading-relaxed text-slate-300">
+          {point.nsRecommendation}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function FieldRow({ field, value, onChange }) {
+  const info = FIELD_INFO_TS[field.key]
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <label className="truncate text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            {field.label}
+          </label>
+          {info ? (
+            <div className="group/tip relative cursor-help">
+              <HelpCircle size={11} className="text-slate-600 transition-colors group-hover/tip:text-brand-400" />
+              <div className="pointer-events-none absolute bottom-full left-0 z-50 mb-1.5 w-48 rounded-xl border border-ink-700 bg-ink-900/95 p-2.5 text-[10px] font-medium leading-relaxed text-slate-300 opacity-0 shadow-2xl backdrop-blur-md transition-opacity group-hover/tip:opacity-100">
+                {info}
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <input
+          type="number"
+          step={field.step}
+          value={value}
+          onChange={(e) => onChange(field.key, e.target.value)}
+          className="w-20 bg-transparent text-right text-xs font-black text-brand-400 outline-none"
+        />
+      </div>
+      <input
+        type="range"
+        min={field.min}
+        max={field.max}
+        step={field.step}
+        value={value}
+        onChange={(e) => onChange(field.key, e.target.value)}
+        className="h-1 w-full cursor-pointer appearance-none rounded-full bg-ink-700 accent-brand-500"
+      />
+    </div>
+  )
+}
+
+function GrowthAdvisorSummary({ suggestions, onOpen }) {
+  if (!suggestions || suggestions.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-ink-700 bg-ink-900/40 p-4 text-center">
+        <p className="text-[11px] font-bold leading-snug text-slate-500">
+          Run the growth forecast to populate Growth Advisor.
+        </p>
+      </div>
+    )
+  }
+
+  const counts = suggestions.reduce(
+    (acc, s) => ({ ...acc, [s.severity]: (acc[s.severity] || 0) + 1 }),
+    { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
+  )
+  const top = suggestions[0]
+  const hasHighSignal = counts.critical > 0 || counts.high > 0
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={`w-full rounded-2xl border p-3 text-left transition-colors ${
+        hasHighSignal
+          ? 'border-orange-500/45 bg-orange-500/10 hover:border-orange-400'
+          : 'border-ink-700 bg-ink-900/40 hover:border-brand-500'
       }`}
     >
-      <div className="flex items-start justify-between mb-4">
-        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white ${palette.icon}`}>
-          <Icon size={22} />
-        </div>
-        {active && (
-          <span className="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full bg-brand-100 text-brand-700">
-            Active
-          </span>
-        )}
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-brand-400">
+          <FlaskConical size={11} className="text-amber-400" />
+          Growth Advisor · {suggestions.length}
+        </span>
+        <ChevronRight size={12} className="text-slate-500" />
       </div>
-      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{info.tagline}</p>
-      <h4 className="text-lg font-black text-slate-900 mb-1">{info.label}</h4>
-      <span className={`inline-block text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md mb-3 ${palette.tag}`}>
-        {info.ecBand}
-      </span>
-      <p className="text-xs text-slate-600 font-semibold leading-relaxed mb-2">
-        <span className="text-slate-400 font-black uppercase tracking-widest text-[10px] block mb-1">When</span>
-        {info.when}
+      <p className="mt-1.5 line-clamp-2 text-xs font-bold leading-snug text-slate-100">
+        {top.title}
       </p>
-      <p className="text-xs text-slate-600 font-semibold leading-relaxed">
-        <span className="text-slate-400 font-black uppercase tracking-widest text-[10px] block mb-1">Why</span>
-        {info.why}
-      </p>
-    </div>
+      <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] font-black uppercase tracking-widest">
+        {counts.high ? <span className="rounded bg-red-500/20 px-1.5 py-0.5 text-red-200">{counts.high} high</span> : null}
+        {counts.medium ? <span className="rounded bg-orange-500/20 px-1.5 py-0.5 text-orange-200">{counts.medium} med</span> : null}
+        {counts.low ? <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-amber-200">{counts.low} low</span> : null}
+        {counts.info ? <span className="rounded bg-brand-500/20 px-1.5 py-0.5 text-brand-200">{counts.info} info</span> : null}
+      </div>
+    </button>
   )
 }
 
-function StatCard({ label, value, unit, accentClass, icon: Icon, trendIcon: TrendIcon, trendClass }) {
-  return (
-    <div className="bg-white rounded-[3rem] p-8 border border-slate-200 shadow-sm relative overflow-hidden">
-      <div className="absolute -right-3 -bottom-3 opacity-5"><Icon size={140} /></div>
-      <div className="flex items-center gap-3 mb-3">
-        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white ${accentClass}`}>
-          <Icon size={18} />
-        </div>
-        <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em]">{label}</p>
-      </div>
-      <div className="flex items-baseline gap-2 relative z-10">
-        <span className="text-5xl font-black text-slate-900 tracking-tighter">{value}</span>
-        <span className="text-sm font-bold text-slate-400 uppercase tracking-tighter">{unit}</span>
-        {TrendIcon && (
-          <TrendIcon size={20} className={`ml-2 ${trendClass}`} />
-        )}
-      </div>
-    </div>
-  )
+function summarizeTrajectory(points) {
+  if (points.length < 2) return null
+  const first = points[0]
+  const last = points.at(-1)
+  const days = Math.max(1, last.day - first.day)
+  const actionDays = points.filter(p => p.nsAction === 'replace' || p.nsAction === 'add')
+  const totalNsSupply = points.reduce((sum, p) => sum + (p.nsNew || 0) + (p.nsAdded || 0), 0)
+  return {
+    startDay: first.day,
+    endDay: last.day,
+    days,
+    heightDelta: last.plantHeightCm - first.plantHeightCm,
+    leafDelta: last.numLeaves - first.numLeaves,
+    heightRate: (last.plantHeightCm - first.plantHeightCm) / days,
+    leafRate: (last.numLeaves - first.numLeaves) / days,
+    totalNsSupply,
+    actionDays,
+  }
 }
 
 export default function GrowthTestPage() {
-  const navigate = useNavigate()
-  const user = localStorage.getItem('user')
-
   const [form, setForm] = useState(INITIAL_TS_FORM)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
-  const [chartsOpen, setChartsOpen] = useState(false)
+  const [bestGrowth, setBestGrowth] = useState(null)
+  const [bestGrowthLoading, setBestGrowthLoading] = useState(false)
+  const [compareOpen, setCompareOpen] = useState(false)
+  const [detailOpen, setDetailOpen] = useState(null)
+  const [advisorOpen, setAdvisorOpen] = useState(false)
+
+  useEffect(() => {
+    document.body.classList.add('theme-dark')
+    return () => document.body.classList.remove('theme-dark')
+  }, [])
 
   const updateField = (key, value) => setForm(prev => ({ ...prev, [key]: value }))
 
-  const predictions = result?.predictions ?? []
+  const chartData = useMemo(() => {
+    const predictions = Array.isArray(result?.predictions) ? result.predictions : []
+    return predictions.map(point => {
+      const nsNew = point.ns_new_per_plant_l ?? 0
+      const nsAdded = point.ns_added_per_plant_l ?? 0
+      const nsAction = point.ns_action
+      return {
+        day: point.days_after_transplant,
+        plantHeightCm: point.plant_height_cm,
+        numLeaves: point.num_leaves,
+        nsNew,
+        nsAdded,
+        nsAction,
+        actionVolume: nsAction === 'replace' ? nsNew : nsAction === 'add' ? nsAdded : 0,
+        nsRecommendation: point.ns_recommendation,
+      }
+    })
+  }, [result])
 
-  const chartData = useMemo(
-    () => predictions.map(p => ({
-      day: p.days_after_transplant,
-      plantHeightCm: p.plant_height_cm,
-      numLeaves: p.num_leaves,
-    })),
-    [predictions]
+  const stats = useMemo(() => summarizeTrajectory(chartData), [chartData])
+  const finalPoint = chartData.at(-1)
+  const firstNsAction = stats?.actionDays?.[0]
+  const advisorSuggestions = useMemo(
+    () => analyzeTimeSeriesInput(form, result?.predictions || [], stats).suggestions,
+    [form, result, stats],
   )
 
-  const kpis = useMemo(() => {
-    if (!predictions.length) {
-      return { finalHeight: null, finalLeaves: null, windowDays: 0, dominantPolicy: null }
+  const scoreGrowthCurve = (currentPoints, candidatePoints) => {
+    let score = 0
+    let matched = 0
+    for (let i = 0; i < currentPoints.length; i += 1) {
+      const current = currentPoints[i]
+      const candidate = candidatePoints.find(point => point.day === current.day)
+      if (!candidate) continue
+      score += Math.max(0, candidate.plantHeightCm - current.plantHeightCm)
+      score += Math.max(0, candidate.numLeaves - current.numLeaves) * 2
+      matched += 1
     }
-    const last = predictions[predictions.length - 1]
-    const windowDays = predictions.length
-    const policyCounts = {}
-    for (const p of predictions) {
-      policyCounts[p.ns_policy] = (policyCounts[p.ns_policy] || 0) + 1
-    }
-    const dominant = Object.entries(policyCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
-    return {
-      finalHeight: last.plant_height_cm,
-      finalLeaves: last.num_leaves,
-      windowDays,
-      dominantPolicy: dominant,
-    }
-  }, [predictions])
+    return matched ? score / matched : 0
+  }
 
-  const distinctPolicies = useMemo(() => {
-    const set = new Set()
-    for (const p of predictions) if (p.ns_policy) set.add(p.ns_policy)
-    return Array.from(set)
-  }, [predictions])
+  const findBestGrowth = async (baseForm, baseResponse) => {
+    const currentPoints = mapTimeSeriesPredictions(baseResponse.predictions)
+    const currentSummary = summarizeTimeSeriesCandidate(currentPoints)
+    if (!currentSummary) return
 
-  const nsTotals = useMemo(() => {
-    if (!predictions.length) {
-      return { totalNew: 0, totalAdded: 0, finalResidual: 0, waterSavingPct: 0, fertilizerSavingPct: 0 }
+    setBestGrowthLoading(true)
+    setBestGrowth(null)
+    try {
+      const candidates = buildTimeSeriesCandidates(baseForm)
+      let best = {
+        label: 'Current input',
+        payload: {
+          startDay: parseInt(baseForm.startDay, 10),
+          maturityDay: parseInt(baseForm.maturityDay, 10),
+          ec: baseForm.ec,
+          light: baseForm.light,
+          environment: {
+            tAirMean: parseFloat(baseForm.tAirMean),
+            rhMean: parseFloat(baseForm.rhMean),
+            co2Mean: parseFloat(baseForm.co2Mean),
+            parLampDaily: parseFloat(baseForm.parLampDaily),
+            lightOnHoursDaily: parseFloat(baseForm.lightOnHoursDaily),
+          },
+        },
+        changes: ['Current input performed best among the tested growth combinations.'],
+        points: currentPoints,
+        summary: currentSummary,
+        score: currentSummary.score,
+      }
+
+      for (let i = 0; i < candidates.length; i += 1) {
+        const candidate = candidates[i]
+        let response = null
+        try {
+          response = await predictTimeSeries(candidate.payload)
+        } catch {
+          continue
+        }
+        if (!Array.isArray(response?.predictions)) continue
+        const candidatePoints = mapTimeSeriesPredictions(response.predictions)
+        const candidateSummary = summarizeTimeSeriesCandidate(candidatePoints)
+        if (!candidateSummary) continue
+        const gainScore = scoreGrowthCurve(currentPoints, candidatePoints)
+        const adjustedScore = candidateSummary.score + gainScore - (candidate.changeCount || 0) * 0.05
+        if (adjustedScore > best.score) {
+          best = {
+            label: candidate.label,
+            payload: candidate.payload,
+            changes: candidate.changes,
+            points: candidatePoints,
+            summary: candidateSummary,
+            score: adjustedScore,
+          }
+        }
+      }
+
+      setBestGrowth({
+        testedCount: candidates.length,
+        currentSummary,
+        best,
+        comparisonData: buildTimeSeriesComparison(currentPoints, best.points),
+        hasImprovement: best.label !== 'Current input',
+      })
+    } finally {
+      setBestGrowthLoading(false)
     }
-    let totalNew = 0
-    let totalAdded = 0
-    let peakDailyNew = 0
-    for (const p of predictions) {
-      const fresh = p.ns_new_per_plant_l ?? 0
-      const added = p.ns_added_per_plant_l ?? 0
-      totalNew += fresh
-      totalAdded += added
-      if (fresh > peakDailyNew) peakDailyNew = fresh
-    }
-    const finalResidual = predictions[predictions.length - 1].ns_residual_per_plant_l ?? 0
-    const totalSupply = totalNew + totalAdded
-    const baselineSupply = predictions.length * peakDailyNew
-    const waterSavingPct = baselineSupply > 0 ? Math.max(0, 1 - totalSupply / baselineSupply) : 0
-    return {
-      totalNew,
-      totalAdded,
-      finalResidual,
-      waterSavingPct,
-      fertilizerSavingPct: waterSavingPct,
-    }
-  }, [predictions])
+  }
 
   const handlePredict = async () => {
     setLoading(true)
     setError('')
     setResult(null)
+    setBestGrowth(null)
     try {
       const payload = {
         startDay: parseInt(form.startDay, 10),
@@ -196,325 +345,474 @@ export default function GrowthTestPage() {
         },
       }
       const response = await predictTimeSeries(payload)
-      if (!response || !Array.isArray(response.predictions)) {
-        throw new Error('Invalid time-series response format.')
+      if (!Array.isArray(response?.predictions)) {
+        throw new Error('Invalid growth response format.')
       }
       setResult(response)
+      findBestGrowth(form, response)
     } catch (e) {
-      setError(e.message || 'Time-series forecast failed.')
+      setError(e.message || 'Growth forecast failed.')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-900 font-sans">
-      <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200">
-        <div className="max-w-[1400px] mx-auto px-6 py-4 flex items-center justify-between">
-          <button onClick={() => navigate('/')} className="flex items-center gap-3 group">
-            <div className="w-10 h-10 rounded-2xl bg-brand-600 flex items-center justify-center shadow-lg shadow-brand-200">
-              <Leaf className="text-white" size={22} />
-            </div>
-            <h1 className="text-xl font-black tracking-tight uppercase italic">
-              Tomato<span className="text-brand-600">Lab</span>
-            </h1>
-          </button>
-          <div className="flex items-center gap-6">
-            <button onClick={() => navigate('/')} className="text-sm font-bold text-slate-500 hover:text-brand-600 transition-colors">
-              Yield
-            </button>
-            <button className="text-sm font-black text-brand-600">
-              Growth Test
-            </button>
-            <button onClick={() => navigate('/history')} className="text-sm font-bold text-slate-500 hover:text-brand-600 transition-colors">
-              History
-            </button>
-            {user ? (
-              <div className="flex items-center gap-4 px-4 py-2 bg-slate-50 rounded-xl border border-slate-100">
-                <span className="text-xs font-black text-slate-700 flex items-center gap-2">
-                  <User size={14} /> {user}
-                </span>
-                <button onClick={() => { localStorage.removeItem('user'); window.location.reload() }} className="text-xs font-bold text-red-500 hover:text-red-600">
-                  Logout
-                </button>
+    <div className="relative min-h-screen overflow-hidden bg-ink-950 text-slate-100">
+      <div className="fixed inset-0 z-0">
+        <TomatoCanvas metrics={form} prediction={null} darkBg />
+      </div>
+      <div className="pointer-events-none fixed inset-0 z-10 grid-bg opacity-55" />
+      <div className="pointer-events-none fixed inset-x-0 top-0 z-10 h-28 bg-gradient-to-b from-ink-950/90 to-transparent" />
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-10 h-40 bg-gradient-to-t from-ink-950/95 to-transparent" />
+
+      <div className="pointer-events-none relative z-20 flex min-h-screen flex-col">
+        <TopNav variant="dark" />
+
+        <main className="pointer-events-none flex-1 px-4 pb-6 pt-4 sm:px-6">
+          <div className="flex w-full flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <aside className="pointer-events-auto w-full shrink-0 lg:w-[340px] xl:w-[360px]">
+              <div className="flex flex-col overflow-hidden rounded-3xl border border-ink-700 bg-ink-900/82 shadow-[0_24px_60px_-24px_rgba(0,0,0,0.7)] backdrop-blur-xl lg:sticky lg:top-20 lg:max-h-[calc(100vh-10rem)]">
+                <div className="scrollbar-thin flex-1 overflow-y-auto p-3">
+                  <div className="mb-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.22em] text-brand-500">
+                        Growth Forecast
+                      </p>
+                      <p className="mt-1 text-xs font-bold text-slate-500">
+                        Time-series inputs only.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setForm(INITIAL_TS_FORM)}
+                      className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-slate-500 transition-colors hover:text-brand-400"
+                    >
+                      <RotateCcw size={10} />
+                      Reset
+                    </button>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {TS_GROUPS.map(group => {
+                      const Icon = group.title.startsWith('Forecast') ? Thermometer : Wind
+                      return (
+                        <CollapsibleGroup
+                          key={group.title}
+                          id={`growth-${group.title}`}
+                          title={group.title}
+                          icon={Icon || GROUP_ICON_MAP[group.title]}
+                          iconClass={group.title.startsWith('Forecast') ? 'text-orange-400' : 'text-sky-400'}
+                        >
+                          {group.fields.map(field => (
+                            <FieldRow
+                              key={field.key}
+                              field={field}
+                              value={form[field.key]}
+                              onChange={updateField}
+                            />
+                          ))}
+                        </CollapsibleGroup>
+                      )
+                    })}
+
+                    <CollapsibleGroup id="growth-treatment" title="Treatment" icon={Activity} iconClass="text-brand-400">
+                      <div className="space-y-3">
+                        <div>
+                          <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            EC Level
+                          </label>
+                          <select
+                            value={form.ec}
+                            onChange={(e) => updateField('ec', e.target.value)}
+                            className="w-full rounded-2xl border border-ink-700 bg-ink-850/80 p-3 text-sm font-bold text-slate-100 outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+                          >
+                            {EC_OPTIONS.map(v => <option key={v} value={v}>{v}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            Light Treatment
+                          </label>
+                          <select
+                            value={form.light}
+                            onChange={(e) => updateField('light', e.target.value)}
+                            className="w-full rounded-2xl border border-ink-700 bg-ink-850/80 p-3 text-sm font-bold text-slate-100 outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+                          >
+                            {LIGHT_OPTIONS.map(v => <option key={v} value={v}>{v}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                    </CollapsibleGroup>
+                  </div>
+                </div>
+
+                <div className="border-t border-ink-700/60 p-3">
+                  <button
+                    onClick={handlePredict}
+                    disabled={loading}
+                    className="flex w-full items-center justify-center gap-2 rounded-full bg-brand-600 py-3 text-[11px] font-black uppercase tracking-[0.22em] text-white transition-colors hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {loading ? <RefreshCw size={14} className="animate-spin" /> : <TrendingUp size={14} />}
+                    {loading ? 'Processing...' : 'Run Growth Forecast'}
+                  </button>
+                </div>
               </div>
-            ) : (
-              <button onClick={() => navigate('/login')} className="px-6 py-2 bg-slate-900 text-white rounded-xl text-xs font-black hover:bg-brand-600 transition-all shadow-lg shadow-slate-200">
-                Sign In
+            </aside>
+
+            <section className="pointer-events-auto w-full min-w-0">
+              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_360px]">
+                <div className="rounded-3xl border border-ink-700 bg-ink-900/82 p-4 shadow-[0_24px_60px_-24px_rgba(0,0,0,0.7)] backdrop-blur-xl">
+                  <div className="mb-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.22em] text-brand-500">
+                        Growth Curves
+                      </p>
+                      <p className="mt-1 text-xs font-bold text-slate-500">
+                        Height, leaves and nutrient-solution actions.
+                      </p>
+                    </div>
+                  </div>
+
+                  {chartData.length ? (
+                    <div className="grid gap-4 xl:grid-cols-2">
+                      <div className="h-[320px] rounded-2xl border border-ink-700 bg-ink-900/40 p-3">
+                        <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-slate-500">Plant Height</p>
+                        <ResponsiveContainer width="100%" height="92%">
+                          <AreaChart data={chartData} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+                            <CartesianGrid stroke="#1a3d2a" vertical={false} />
+                            <XAxis dataKey="day" stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} tickFormatter={(d) => `D${d}`} />
+                            <YAxis stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={36} tickFormatter={(v) => v.toFixed(0)} />
+                            <Tooltip content={<GrowthTooltip />} cursor={{ stroke: '#475569', strokeDasharray: '4 4' }} />
+                            <Area type="monotone" dataKey="plantHeightCm" name="Height" stroke="#22c55e" strokeWidth={2.5} fill="#22c55e" fillOpacity={0.18} dot={false} />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+
+                      <div className="h-[320px] rounded-2xl border border-ink-700 bg-ink-900/40 p-3">
+                        <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-slate-500">Leaves</p>
+                        <ResponsiveContainer width="100%" height="92%">
+                          <AreaChart data={chartData} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+                            <CartesianGrid stroke="#1a3d2a" vertical={false} />
+                            <XAxis dataKey="day" stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} tickFormatter={(d) => `D${d}`} />
+                            <YAxis stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={36} tickFormatter={(v) => v.toFixed(0)} />
+                            <Tooltip content={<GrowthTooltip />} cursor={{ stroke: '#475569', strokeDasharray: '4 4' }} />
+                            <Area type="monotone" dataKey="numLeaves" name="Leaves" stroke="#38bdf8" strokeWidth={2.5} fill="#38bdf8" fillOpacity={0.18} dot={false} />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+
+                      <div className="h-[280px] rounded-2xl border border-ink-700 bg-ink-900/40 p-3 xl:col-span-2">
+                        <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-slate-500">NS Action Volume</p>
+                        <ResponsiveContainer width="100%" height="90%">
+                          <BarChart data={chartData} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+                            <CartesianGrid stroke="#1a3d2a" vertical={false} />
+                            <XAxis dataKey="day" stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} tickFormatter={(d) => `D${d}`} />
+                            <YAxis stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={40} tickFormatter={(v) => `${v.toFixed(1)}L`} />
+                            <Tooltip content={<NsTooltip />} cursor={{ fill: '#0a1a12' }} />
+                            <Bar dataKey="actionVolume" name="NS Action" radius={[4, 4, 0, 0]} maxBarSize={28}>
+                              {chartData.map((entry, idx) => (
+                                <Cell
+                                  key={idx}
+                                  fill={
+                                    entry.nsAction === 'replace' ? '#dc2626' :
+                                    entry.nsAction === 'add' ? '#f97316' :
+                                    '#1f2937'
+                                  }
+                                />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex min-h-[520px] items-center justify-center rounded-2xl border border-dashed border-ink-700 bg-ink-900/35 text-center">
+                      <div>
+                        <Sprout size={42} className="mx-auto mb-4 text-slate-700" />
+                        <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-500">
+                          Awaiting Growth Forecast
+                        </p>
+                        <p className="mt-2 text-xs font-bold text-slate-600">
+                          Adjust the time-series inputs, then run the forecast.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <aside className="flex flex-col gap-3">
+                  <div className="rounded-3xl border border-ink-700 bg-ink-900/82 p-4 shadow-[0_24px_60px_-24px_rgba(0,0,0,0.7)] backdrop-blur-xl">
+                    <p className="mb-3 text-[10px] font-black uppercase tracking-[0.22em] text-brand-500">
+                      Growth Result
+                    </p>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="rounded-2xl border border-ink-700 bg-ink-900/40 p-2.5">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Height</p>
+                        <p className="text-xl font-black tabular-nums text-slate-50">{finalPoint ? finalPoint.plantHeightCm.toFixed(1) : '-'}</p>
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600">cm</p>
+                      </div>
+                      <div className="rounded-2xl border border-ink-700 bg-ink-900/40 p-2.5">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Leaves</p>
+                        <p className="text-xl font-black tabular-nums text-slate-50">{finalPoint ? finalPoint.numLeaves.toFixed(1) : '-'}</p>
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600">count</p>
+                      </div>
+                      <div className="rounded-2xl border border-ink-700 bg-ink-900/40 p-2.5">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">NS</p>
+                        <p className="text-xl font-black tabular-nums text-slate-50">{stats ? stats.totalNsSupply.toFixed(2) : '-'}</p>
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600">L/plant</p>
+                      </div>
+                    </div>
+
+                    {firstNsAction ? (
+                      <div className="mt-3 rounded-2xl border border-orange-500/40 bg-orange-500/10 p-3">
+                        <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-orange-300">
+                          Next NS Action · Day {firstNsAction.day}
+                        </p>
+                        <p className="text-sm font-bold leading-snug text-slate-100">
+                          {firstNsAction.nsRecommendation || `Add ${firstNsAction.actionVolume.toFixed(2)} L nutrient solution`}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="mt-3 rounded-2xl border border-dashed border-ink-700 bg-ink-900/40 p-4 text-center">
+                        <p className="text-[11px] font-bold leading-snug text-slate-500">
+                          {result ? 'No NS action triggered.' : 'Run the growth forecast first.'}
+                        </p>
+                      </div>
+                    )}
+
+                    {stats ? (
+                      <div className="mt-3 rounded-2xl border border-ink-700 bg-ink-900/40 p-3 text-[10px] font-bold tabular-nums text-slate-400">
+                        <span className="mr-2 text-slate-500 uppercase tracking-widest">{stats.days}d</span>
+                        <span className="text-brand-400">+{stats.heightDelta.toFixed(1)} cm</span>
+                        <span className="mx-1.5 text-slate-700">·</span>
+                        <span className="text-sky-400">+{stats.leafDelta.toFixed(1)} leaf</span>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="rounded-3xl border border-ink-700 bg-ink-900/82 p-2 shadow-[0_24px_60px_-24px_rgba(0,0,0,0.7)] backdrop-blur-xl">
+                    <div className="flex flex-col gap-2">
+                      <SparklineCard
+                        label="Plant Height"
+                        value={finalPoint ? finalPoint.plantHeightCm.toFixed(1) : '-'}
+                        unit="cm"
+                        data={chartData}
+                        dataKey="plantHeightCm"
+                        color="#22c55e"
+                        onExpand={() => setDetailOpen('height')}
+                        loading={loading}
+                      />
+                      <SparklineCard
+                        label="Leaf Count"
+                        value={finalPoint ? finalPoint.numLeaves.toFixed(1) : '-'}
+                        unit="leaves"
+                        data={chartData}
+                        dataKey="numLeaves"
+                        color="#38bdf8"
+                        onExpand={() => setDetailOpen('leaf')}
+                        loading={loading}
+                      />
+                    </div>
+                  </div>
+
+                  <GrowthAdvisorSummary
+                    suggestions={result ? advisorSuggestions : []}
+                    onOpen={() => setAdvisorOpen(true)}
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => setCompareOpen(true)}
+                    disabled={!bestGrowth}
+                    className="flex w-full items-center justify-center gap-2 rounded-full border border-ink-700 bg-ink-900/80 px-5 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-slate-300 backdrop-blur-xl transition-colors hover:border-brand-500 hover:text-brand-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {bestGrowthLoading ? <RefreshCw size={12} className="animate-spin" /> : <TrendingUp size={12} className="text-brand-500" />}
+                    Compare Growth
+                  </button>
+                </aside>
+              </div>
+            </section>
+          </div>
+        </main>
+      </div>
+
+      {advisorOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/85 backdrop-blur-md"
+          onMouseDown={() => setAdvisorOpen(false)}
+        >
+          <div
+            className="m-4 flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-ink-700 bg-ink-900/95 shadow-2xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-ink-700/60 px-5 py-3.5">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-brand-500">Advisor</p>
+                <p className="text-sm font-black text-slate-100">Growth Optimization Tips</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAdvisorOpen(false)}
+                className="rounded-full p-1.5 text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-100"
+              >
+                <X size={16} />
               </button>
-            )}
+            </div>
+            <div className="scrollbar-thin flex-1 overflow-y-auto p-5">
+              <AdvisorPanel suggestions={advisorSuggestions} dark embed />
+            </div>
           </div>
         </div>
-      </nav>
+      ) : null}
 
-      <main className="max-w-[1400px] mx-auto px-6 py-8 space-y-8">
-        <header className="flex items-end justify-between flex-wrap gap-4">
-          <div>
-            <p className="text-[11px] font-black text-brand-600 uppercase tracking-[0.3em] mb-2">Branch Growth Test</p>
-            <h2 className="text-3xl font-black tracking-tight">分支生长 + 营养液调度预测</h2>
-            <p className="text-sm text-slate-500 mt-2 max-w-2xl font-medium">
-              Recursively forecasts daily plant height, leaf count and nutrient-solution scheduling under a locked environment treatment.
-            </p>
-          </div>
-          {error && (
-            <div className="px-4 py-2 rounded-2xl bg-red-50 border border-red-100 text-xs font-bold text-red-600">
-              {error}
-            </div>
-          )}
-        </header>
-
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          <div className="lg:col-span-4">
-            <div className="bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm sticky top-24">
-              <div className="flex items-center justify-between mb-8">
-                <h3 className="text-lg font-black flex items-center gap-2">
-                  <Sprout size={20} className="text-brand-600" /> Forecast Settings
-                </h3>
-                <button
-                  onClick={() => setForm(INITIAL_TS_FORM)}
-                  className="text-[10px] font-black text-slate-300 hover:text-brand-600 uppercase tracking-widest transition-colors"
-                >
-                  Reset
-                </button>
+      {compareOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/85 backdrop-blur-md"
+          onMouseDown={() => setCompareOpen(false)}
+        >
+          <div
+            className="m-4 max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-3xl border border-ink-700 bg-ink-900/95 shadow-2xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-ink-700/60 px-5 py-3.5">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-brand-500">Compare</p>
+                <p className="text-sm font-black text-slate-100">Growth Before vs After</p>
               </div>
-
-              <div className="space-y-6">
-                {TS_GROUPS.map(group => {
-                  const Icon = GROUP_ICON_MAP[group.iconName] || Wind
-                  return (
-                    <div key={group.title} className="space-y-4">
-                      <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-50 pb-2">
-                        <Icon size={18} className={group.iconColor} /> {group.title}
-                      </div>
-                      {group.fields.map(field => (
-                        <div key={field.key} className="group relative">
-                          <div className="flex justify-between items-center mb-1.5">
-                            <label className="text-[11px] font-bold text-slate-500 group-hover:text-brand-600 transition-colors">
-                              {field.label} <span className="text-slate-300">({field.unit})</span>
-                            </label>
-                            <input
-                              type="number"
-                              step={field.step}
-                              value={form[field.key]}
-                              onChange={e => updateField(field.key, e.target.value)}
-                              className="w-20 text-right bg-transparent text-xs font-black text-brand-600 outline-none"
-                            />
-                          </div>
-                          <input
-                            type="range"
-                            min={field.min}
-                            max={field.max}
-                            step={field.step}
-                            value={form[field.key]}
-                            onChange={e => updateField(field.key, e.target.value)}
-                            className="w-full h-1 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-brand-600"
-                          />
-                          <p className="text-[10px] text-slate-400 mt-1 leading-tight">{FIELD_INFO_TS[field.key]}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )
-                })}
-
-                <div className="grid grid-cols-1 gap-4">
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">EC Treatment</label>
-                    <select
-                      value={form.ec}
-                      onChange={e => updateField('ec', e.target.value)}
-                      className="w-full p-4 bg-slate-50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-brand-500 outline-none transition-all"
-                    >
-                      {EC_OPTIONS.map(v => <option key={v} value={v}>{v}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">Light Treatment</label>
-                    <select
-                      value={form.light}
-                      onChange={e => updateField('light', e.target.value)}
-                      className="w-full p-4 bg-slate-50 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-brand-500 outline-none transition-all"
-                    >
-                      {LIGHT_OPTIONS.map(v => <option key={v} value={v}>{v}</option>)}
-                    </select>
-                  </div>
-                </div>
-              </div>
-
               <button
-                onClick={handlePredict}
-                disabled={loading}
-                className="w-full mt-8 py-4 bg-slate-900 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-slate-200 hover:bg-brand-600 active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                type="button"
+                onClick={() => setCompareOpen(false)}
+                className="rounded-full p-1.5 text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-100"
               >
-                {loading ? <RefreshCw className="animate-spin" size={18} /> : <TrendingUp size={18} />}
-                {loading ? 'Forecasting...' : 'Run Time-Series'}
+                <X size={16} />
               </button>
             </div>
-          </div>
-
-          <div className="lg:col-span-8 space-y-6">
-            {!result ? (
-              <div className="bg-white rounded-[3rem] border-2 border-dashed border-slate-100 p-16 text-center">
-                <div className="w-24 h-24 mx-auto bg-slate-50 rounded-full flex items-center justify-center mb-6 animate-pulse text-slate-200">
-                  <Sprout size={40} />
-                </div>
-                <h3 className="text-2xl font-black text-slate-300 tracking-tight italic">Awaiting Forecast</h3>
-                <p className="text-slate-400 text-sm max-w-md mx-auto mt-3 font-medium italic">
-                  Adjust the locked environment & treatment, then run the time-series.
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-                  <StatCard
-                    label="Final Plant Height"
-                    value={kpis.finalHeight != null ? kpis.finalHeight.toFixed(1) : '--'}
-                    unit="cm"
-                    accentClass="bg-brand-600"
-                    icon={Sprout}
-                  />
-                  <StatCard
-                    label="Final Leaf Count"
-                    value={kpis.finalLeaves != null ? kpis.finalLeaves.toFixed(1) : '--'}
-                    unit="leaves"
-                    accentClass="bg-blue-500"
-                    icon={Leaf}
-                  />
-                  <StatCard
-                    label="Forecast Window"
-                    value={kpis.windowDays || '--'}
-                    unit="days"
-                    accentClass="bg-slate-700"
-                    icon={Thermometer}
-                  />
-                  <div className="bg-slate-900 rounded-[3rem] p-8 text-white shadow-xl relative overflow-hidden">
-                    <div className="absolute -right-2 -bottom-2 opacity-10"><FlaskConical size={130} /></div>
-                    <p className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em] mb-3">Active Policy</p>
-                    {kpis.dominantPolicy ? (
-                      <>
-                        <p className="text-3xl font-black tracking-tighter mb-1">{getPolicyInfo(kpis.dominantPolicy).label}</p>
-                        <p className="text-xs font-bold text-brand-400">{getPolicyInfo(kpis.dominantPolicy).tagline}</p>
-                      </>
-                    ) : (
-                      <p className="text-sm text-slate-400">--</p>
-                    )}
-                  </div>
-                </div>
-
-                <NsScheduleTimeline predictions={predictions} />
-
-                <div className="bg-white rounded-[3rem] p-8 border border-slate-200 shadow-sm">
-                  <div className="mb-6">
-                    <h3 className="text-xl font-black flex items-center gap-3">
-                      <Sparkles size={20} className="text-amber-500" /> Policy Library
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-1 font-semibold">
-                      The model picks an EC strategy based on treatment. The active policy is highlighted.
+            <div className="scrollbar-thin max-h-[calc(90vh-4rem)] overflow-y-auto p-5">
+              {bestGrowth ? (
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-ink-700 bg-ink-850/60 p-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Tested {bestGrowth.testedCount} candidate{bestGrowth.testedCount === 1 ? '' : 's'}
+                    </p>
+                    <p className="mt-1 text-sm font-bold text-slate-200">
+                      Best: <span className="text-brand-400">{bestGrowth.best.label}</span>
                     </p>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {distinctPolicies.map(name => (
-                      <PolicyCard
-                        key={name}
-                        info={getPolicyInfo(name)}
-                        active={kpis.dominantPolicy === name}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                  <StatCard
-                    label="Total Fresh NS"
-                    value={nsTotals.totalNew.toFixed(2)}
-                    unit="L/plant"
-                    accentClass="bg-orange-500"
-                    icon={Droplets}
-                  />
-                  <StatCard
-                    label="Total Added NS"
-                    value={nsTotals.totalAdded.toFixed(2)}
-                    unit="L/plant"
-                    accentClass="bg-cyan-500"
-                    icon={Droplets}
-                  />
-                  <StatCard
-                    label="Water Saving"
-                    value={(nsTotals.waterSavingPct * 100).toFixed(1)}
-                    unit="%"
-                    accentClass="bg-emerald-500"
-                    icon={Droplets}
-                    trendIcon={nsTotals.waterSavingPct > 0 ? TrendingUp : Minus}
-                    trendClass={nsTotals.waterSavingPct > 0 ? 'text-emerald-500' : 'text-slate-300'}
-                  />
-                  <StatCard
-                    label="Fertilizer Saving"
-                    value={(nsTotals.fertilizerSavingPct * 100).toFixed(1)}
-                    unit="%"
-                    accentClass="bg-emerald-500"
-                    icon={FlaskConical}
-                    trendIcon={nsTotals.fertilizerSavingPct > 0 ? TrendingUp : Minus}
-                    trendClass={nsTotals.fertilizerSavingPct > 0 ? 'text-emerald-500' : 'text-slate-300'}
-                  />
-                </div>
-
-                <details
-                  open={chartsOpen}
-                  onToggle={e => setChartsOpen(e.currentTarget.open)}
-                  className="bg-white rounded-[3rem] p-8 border border-slate-200 shadow-sm"
-                >
-                  <summary className="cursor-pointer list-none flex items-center justify-between">
-                    <h3 className="text-xl font-black flex items-center gap-3">
-                      <TrendingUp size={20} className="text-brand-600" /> Advanced Charts
-                    </h3>
-                    <ChevronRight
-                      size={20}
-                      className={`text-slate-400 transition-transform duration-200 ${chartsOpen ? 'rotate-90' : ''}`}
-                    />
-                  </summary>
-                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mt-6">
-                    <div className="rounded-[2rem] border border-slate-100 bg-slate-50/50 p-5">
-                      <div className="mb-4">
-                        <p className="text-sm font-black text-slate-900">Plant Height</p>
-                        <p className="text-xs text-slate-500">Daily predicted height in centimeters.</p>
-                      </div>
-                      <div className="h-[320px]">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div>
+                      <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-slate-500">Plant Height</p>
+                      <div className="h-[240px]">
                         <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                            <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-                            <XAxis dataKey="day" stroke="#64748b" tickLine={false} axisLine={false} />
-                            <YAxis stroke="#16a34a" tickLine={false} axisLine={false} width={56} />
-                            <Tooltip />
-                            <Legend />
-                            <Line type="monotone" dataKey="plantHeightCm" name="Plant Height (cm)" stroke="#16a34a" strokeWidth={3} dot={false} />
-                          </LineChart>
+                          <AreaChart data={bestGrowth.comparisonData} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+                            <CartesianGrid stroke="#1a3d2a" vertical={false} />
+                            <XAxis dataKey="day" stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} tickFormatter={(d) => `D${d}`} />
+                            <YAxis stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={36} tickFormatter={(v) => v.toFixed(0)} />
+                            <Tooltip content={<GrowthTooltip />} cursor={{ stroke: '#475569', strokeDasharray: '4 4' }} />
+                            <Area type="monotone" dataKey="currentHeight" name="Before Height" stroke="#64748b" strokeWidth={2.2} fill="#64748b" fillOpacity={0.1} dot={false} />
+                            {bestGrowth.hasImprovement ? (
+                              <Area type="monotone" dataKey="recommendedHeight" name="After Height" stroke="#22c55e" strokeWidth={2.5} fill="#22c55e" fillOpacity={0.18} dot={false} />
+                            ) : null}
+                          </AreaChart>
                         </ResponsiveContainer>
                       </div>
                     </div>
-                    <div className="rounded-[2rem] border border-slate-100 bg-slate-50/50 p-5">
-                      <div className="mb-4">
-                        <p className="text-sm font-black text-slate-900">Leaf Count</p>
-                        <p className="text-xs text-slate-500">Daily predicted number of leaves.</p>
-                      </div>
-                      <div className="h-[320px]">
+                    <div>
+                      <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-slate-500">Leaves</p>
+                      <div className="h-[240px]">
                         <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                            <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-                            <XAxis dataKey="day" stroke="#64748b" tickLine={false} axisLine={false} />
-                            <YAxis stroke="#2563eb" tickLine={false} axisLine={false} width={56} />
-                            <Tooltip />
-                            <Legend />
-                            <Line type="monotone" dataKey="numLeaves" name="Leaf Count" stroke="#2563eb" strokeWidth={3} dot={false} />
-                          </LineChart>
+                          <AreaChart data={bestGrowth.comparisonData} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+                            <CartesianGrid stroke="#1a3d2a" vertical={false} />
+                            <XAxis dataKey="day" stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} tickFormatter={(d) => `D${d}`} />
+                            <YAxis stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={36} tickFormatter={(v) => v.toFixed(0)} />
+                            <Tooltip content={<GrowthTooltip />} cursor={{ stroke: '#475569', strokeDasharray: '4 4' }} />
+                            <Area type="monotone" dataKey="currentLeaves" name="Before Leaves" stroke="#64748b" strokeWidth={2.2} fill="#64748b" fillOpacity={0.1} dot={false} />
+                            {bestGrowth.hasImprovement ? (
+                              <Area type="monotone" dataKey="recommendedLeaves" name="After Leaves" stroke="#38bdf8" strokeWidth={2.5} fill="#38bdf8" fillOpacity={0.18} dot={false} />
+                            ) : null}
+                          </AreaChart>
                         </ResponsiveContainer>
                       </div>
                     </div>
                   </div>
-                </details>
-              </>
-            )}
+                  <div className="rounded-2xl border border-ink-700 bg-ink-850/60 p-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Changes</p>
+                    <ul className="space-y-1 text-xs font-semibold text-slate-300">
+                      {bestGrowth.best.changes.map((change, index) => (
+                        <li key={index} className="flex gap-2">
+                          <span className="text-brand-500">▸</span> {change}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              ) : (
+                <p className="rounded-2xl border border-dashed border-ink-700 bg-ink-900/40 p-6 text-center text-sm font-bold text-slate-500">
+                  Run a growth forecast first to enable comparison.
+                </p>
+              )}
+            </div>
           </div>
         </div>
-      </main>
+      ) : null}
+
+      {detailOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/85 backdrop-blur-md"
+          onMouseDown={() => setDetailOpen(null)}
+        >
+          <div
+            className="m-4 max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-3xl border border-ink-700 bg-ink-900/95 shadow-2xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-ink-700/60 px-5 py-3.5">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-brand-500">Trajectory</p>
+                <p className="text-sm font-black text-slate-100">
+                  {detailOpen === 'height' ? 'Plant Height' : 'Leaf Count'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailOpen(null)}
+                className="rounded-full p-1.5 text-slate-400 transition-colors hover:bg-ink-800 hover:text-slate-100"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="h-[440px] p-5">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}>
+                  <CartesianGrid stroke="#1a3d2a" vertical={false} />
+                  <XAxis dataKey="day" stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} tickFormatter={(d) => `D${d}`} />
+                  <YAxis stroke="#64748b" tickLine={false} axisLine={false} fontSize={11} fontWeight={700} width={36} tickFormatter={(v) => v.toFixed(0)} />
+                  <Tooltip content={<GrowthTooltip />} cursor={{ stroke: '#475569', strokeDasharray: '4 4' }} />
+                  <Area
+                    type="monotone"
+                    dataKey={detailOpen === 'height' ? 'plantHeightCm' : 'numLeaves'}
+                    name={detailOpen === 'height' ? 'Height' : 'Leaves'}
+                    stroke={detailOpen === 'height' ? '#22c55e' : '#38bdf8'}
+                    strokeWidth={2.5}
+                    fill={detailOpen === 'height' ? '#22c55e' : '#38bdf8'}
+                    fillOpacity={0.18}
+                    dot={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {error ? (
+        <div className="fixed bottom-8 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-2xl border border-red-700/60 bg-red-950/85 px-5 py-3 text-red-200 shadow-2xl backdrop-blur-md">
+          <AlertCircle size={16} />
+          <span className="text-sm font-bold">{error}</span>
+          <button onClick={() => setError('')} className="rounded-lg p-1 text-red-300 hover:bg-red-900/40">
+            <X size={14} />
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 }

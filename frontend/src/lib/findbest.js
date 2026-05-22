@@ -123,6 +123,10 @@ function formatPercent(value) {
   return String(roundValue(value, 0)) + '%'
 }
 
+function formatCelsius(value) {
+  return String(roundValue(value, 1)) + ' C'
+}
+
 function formatPpm(value) {
   return String(roundValue(value, 0)) + ' ppm'
 }
@@ -174,6 +178,9 @@ export function buildTimeSeriesPayload(form, changedEnvironment) {
 
 export function buildYieldCandidates(payload) {
   const baseValues = {
+    avgTemperatureC: roundValue(payload.avgTemperatureC, 1),
+    minTemperatureC: roundValue(payload.minTemperatureC, 1),
+    maxTemperatureC: roundValue(payload.maxTemperatureC, 1),
     humidityPercent: roundValue(payload.humidityPercent, 0),
     co2Ppm: roundValue(payload.co2Ppm, 0),
     lightIntensityLux: roundValue(payload.lightIntensityLux, 0),
@@ -182,102 +189,101 @@ export function buildYieldCandidates(payload) {
     fertilizerNKgHa: roundValue(payload.fertilizerNKgHa, 0),
     fertilizerPKgHa: roundValue(payload.fertilizerPKgHa, 0),
     fertilizerKKgHa: roundValue(payload.fertilizerKKgHa, 0),
+    pestSeverity: roundValue(payload.pestSeverity, 0),
     pH: roundValue(payload.pH, 1),
   }
 
-  const groups = [
-    {
-      key: 'humidityPercent',
-      options: makeOptions(baseValues.humidityPercent, [
-        clamp(baseValues.humidityPercent - 5, 40, 85),
-        baseValues.humidityPercent,
-        clamp(baseValues.humidityPercent + 5, 40, 85),
-        70,
-      ], 'Humidity', formatPercent),
-    },
-    {
-      key: 'co2Ppm',
-      options: makeOptions(baseValues.co2Ppm, [
-        clamp(baseValues.co2Ppm - 100, 300, 1000),
-        baseValues.co2Ppm,
-        clamp(baseValues.co2Ppm + 100, 300, 1000),
-        clamp(baseValues.co2Ppm + 200, 300, 1000),
-      ], 'CO2', formatPpm),
-    },
-    {
-      key: 'lightIntensityLux',
-      options: makeOptions(baseValues.lightIntensityLux, [
-        clamp(baseValues.lightIntensityLux * 0.9, 0, 60000),
-        baseValues.lightIntensityLux,
-        clamp(baseValues.lightIntensityLux * 1.1, 0, 60000),
-        clamp(baseValues.lightIntensityLux * 1.2, 0, 60000),
-      ], 'Light', formatLux),
-    },
-    {
-      key: 'photoperiodHours',
-      options: makeOptions(baseValues.photoperiodHours, [
-        clamp(baseValues.photoperiodHours - 1, 0, 14),
-        baseValues.photoperiodHours,
-        clamp(baseValues.photoperiodHours + 1, 0, 14),
-      ], 'Photoperiod', formatHours),
-    },
-    {
-      key: 'irrigationMm',
-      options: makeOptions(baseValues.irrigationMm, [
-        clamp(baseValues.irrigationMm - 1, 0, 20),
-        baseValues.irrigationMm,
-        clamp(baseValues.irrigationMm + 1, 0, 20),
-      ], 'Irrigation', formatMm),
-    },
-    {
-      key: 'fertilizerNKgHa',
-      options: makeOptions(baseValues.fertilizerNKgHa, [
-        clamp(baseValues.fertilizerNKgHa - 15, 140, 220),
-        baseValues.fertilizerNKgHa,
-        clamp(baseValues.fertilizerNKgHa + 15, 140, 220),
-      ], 'N', formatKgHa),
-    },
-    {
-      key: 'fertilizerPKgHa',
-      options: makeOptions(baseValues.fertilizerPKgHa, [
-        clamp(baseValues.fertilizerPKgHa - 10, 45, 120),
-        baseValues.fertilizerPKgHa,
-        clamp(baseValues.fertilizerPKgHa + 10, 45, 120),
-      ], 'P', formatKgHa),
-    },
-    {
-      key: 'fertilizerKKgHa',
-      options: makeOptions(baseValues.fertilizerKKgHa, [
-        clamp(baseValues.fertilizerKKgHa - 15, 140, 255),
-        baseValues.fertilizerKKgHa,
-        clamp(baseValues.fertilizerKKgHa + 15, 140, 255),
-      ], 'K', formatKgHa),
-    },
-    {
-      key: 'pH',
-      options: makeOptions(baseValues.pH, [
-        clamp(baseValues.pH - 0.2, 5.5, 7.2),
-        baseValues.pH,
-        clamp(baseValues.pH + 0.2, 5.5, 7.2),
-        6.5,
-      ], 'pH', formatPlain),
-    },
-  ]
+  const fieldMeta = {
+    avgTemperatureC: { label: 'Avg temperature', format: formatCelsius },
+    minTemperatureC: { label: 'Min temperature', format: formatCelsius },
+    maxTemperatureC: { label: 'Max temperature', format: formatCelsius },
+    humidityPercent: { label: 'Humidity', format: formatPercent },
+    co2Ppm: { label: 'CO2', format: formatPpm },
+    lightIntensityLux: { label: 'Light', format: formatLux },
+    photoperiodHours: { label: 'Photoperiod', format: formatHours },
+    irrigationMm: { label: 'Irrigation', format: formatMm },
+    fertilizerNKgHa: { label: 'N', format: formatKgHa },
+    fertilizerPKgHa: { label: 'P', format: formatKgHa },
+    fertilizerKKgHa: { label: 'K', format: formatKgHa },
+    pestSeverity: { label: 'Pest level', format: formatPlain },
+    pH: { label: 'pH', format: formatPlain },
+  }
 
-  const combinations = buildCombinations(groups)
+  const targetValues = {
+    avgTemperatureC: 24,
+    minTemperatureC: 18,
+    maxTemperatureC: 28,
+    humidityPercent: 70,
+    co2Ppm: 900,
+    lightIntensityLux: 42000,
+    photoperiodHours: 12,
+    irrigationMm: 7,
+    fertilizerNKgHa: 160,
+    fertilizerPKgHa: 70,
+    fertilizerKKgHa: 180,
+    pestSeverity: 0,
+    pH: 6.5,
+  }
+
+  function makeCandidate(label, values) {
+    const changes = []
+    const roundedValues = {}
+    const keys = Object.keys(values)
+    for (let i = 0; i < keys.length; i += 1) {
+      const key = keys[i]
+      const value = roundValue(values[key], key === 'pH' || key.includes('Temperature') || key === 'photoperiodHours' || key === 'irrigationMm' ? 1 : 0)
+      roundedValues[key] = value
+      if (value !== baseValues[key]) {
+        const meta = fieldMeta[key]
+        changes.push(makeChangeText(meta.label, baseValues[key], value, meta.format))
+      }
+    }
+    if (changes.length === 0) return null
+    return {
+      label,
+      payload: copyPayloadWithValues(payload, roundedValues),
+      changes,
+      changeCount: changes.length,
+    }
+  }
+
   const candidates = []
 
-  for (let i = 0; i < combinations.length; i += 1) {
-    const combination = combinations[i]
-    const changedCount = countChangedValues(combination.values, baseValues)
-    if (changedCount === 0) continue
+  const scenarioValues = [
+    ['Climate target', {
+      avgTemperatureC: targetValues.avgTemperatureC,
+      minTemperatureC: targetValues.minTemperatureC,
+      maxTemperatureC: targetValues.maxTemperatureC,
+      humidityPercent: targetValues.humidityPercent,
+    }],
+    ['Light and carbon target', {
+      co2Ppm: targetValues.co2Ppm,
+      lightIntensityLux: targetValues.lightIntensityLux,
+      photoperiodHours: targetValues.photoperiodHours,
+    }],
+    ['Nutrient target', {
+      fertilizerNKgHa: targetValues.fertilizerNKgHa,
+      fertilizerPKgHa: targetValues.fertilizerPKgHa,
+      fertilizerKKgHa: targetValues.fertilizerKKgHa,
+      pH: targetValues.pH,
+    }],
+    ['Water and pest target', {
+      irrigationMm: targetValues.irrigationMm,
+      pestSeverity: targetValues.pestSeverity,
+    }],
+    ['Full advisor target', targetValues],
+  ]
 
-    candidates.push({
-      label: 'Best full-grid combination',
-      payload: copyPayloadWithValues(payload, combination.values),
-      changes: combination.changes,
-      changeCount: changedCount,
-    })
+  const oneStepKeys = Object.keys(targetValues)
+  for (let i = 0; i < oneStepKeys.length; i += 1) {
+    const key = oneStepKeys[i]
+    const candidate = makeCandidate(`${fieldMeta[key].label} target`, { [key]: targetValues[key] })
+    if (candidate) candidates.push(candidate)
+  }
+
+  for (let i = 0; i < scenarioValues.length; i += 1) {
+    const candidate = makeCandidate(scenarioValues[i][0], scenarioValues[i][1])
+    if (candidate) candidates.push(candidate)
   }
 
   return removeDuplicateCandidates(candidates, function getKey(candidate) {
@@ -288,6 +294,7 @@ export function buildYieldCandidates(payload) {
 export function buildTimeSeriesCandidates(form) {
   const basePayload = buildTimeSeriesPayload(form)
   const baseValues = {
+    tAirMean: roundValue(basePayload.environment.tAirMean, 1),
     rhMean: roundValue(basePayload.environment.rhMean, 1),
     co2Mean: roundValue(basePayload.environment.co2Mean, 0),
     parLampDaily: roundValue(basePayload.environment.parLampDaily, 0),
@@ -295,6 +302,15 @@ export function buildTimeSeriesCandidates(form) {
   }
 
   const groups = [
+    {
+      key: 'tAirMean',
+      options: makeOptions(baseValues.tAirMean, [
+        clamp(baseValues.tAirMean - 2, 18, 28),
+        baseValues.tAirMean,
+        clamp(baseValues.tAirMean + 2, 18, 28),
+        24,
+      ], 'Air temp', formatCelsius),
+    },
     {
       key: 'rhMean',
       options: makeOptions(baseValues.rhMean, [

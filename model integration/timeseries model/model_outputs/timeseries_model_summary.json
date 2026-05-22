@@ -1,0 +1,91 @@
+{
+  "model_type": "recursive_one_step_time_series_forecaster",
+  "backend_required_input": {
+    "ec": "EC level, e.g. EC3 or EC6",
+    "light": "Light treatment, e.g. high light, med light, low light, no light",
+    "environment.t_air_mean": "Locked daily mean air temperature",
+    "environment.rh_mean": "Locked daily mean relative humidity",
+    "environment.co2_mean": "Locked daily mean CO2 concentration",
+    "environment.par_lamp_daily": "Locked daily lamp PAR",
+    "environment.light_on_hours_daily": "Locked daily lamp-on hours"
+  },
+  "internal_model_features": {
+    "numeric": [
+      "days_after_transplant",
+      "current_plant_height_cm",
+      "current_num_leaves",
+      "t_air_mean",
+      "rh_mean",
+      "co2_mean",
+      "par_lamp_sum",
+      "light_on_hours",
+      "t_air_mean_7d",
+      "par_lamp_sum_7d"
+    ],
+    "categorical": [
+      "ec",
+      "light"
+    ]
+  },
+  "outputs": {
+    "plant_height_cm": "Recursive predicted plant height in cm",
+    "num_leaves": "Recursive predicted number of leaves",
+    "ns_new_per_plant_l": "Predicted fresh nutrient solution in liters per plant",
+    "ns_added_per_plant_l": "Predicted added nutrient solution in liters per plant",
+    "ns_residual_per_plant_l": "Predicted residual nutrient solution in liters per plant"
+  },
+  "metrics": [
+    {
+      "target": "plant_height_cm",
+      "rows_used": 448,
+      "cv_group_column": "treatment",
+      "cv_group_splits": 5,
+      "mae": 0.29420835232372017,
+      "r2": 0.9958737800879419
+    },
+    {
+      "target": "num_leaves",
+      "rows_used": 448,
+      "cv_group_column": "treatment",
+      "cv_group_splits": 5,
+      "mae": 0.18739393296853635,
+      "r2": 0.9971371952734092
+    }
+  ],
+  "ns_metrics": [
+    {
+      "target": "ns_new_per_plant_l",
+      "rows_used": 144,
+      "cv_group_column": "treatment",
+      "cv_group_splits": 5,
+      "mae": 0.0,
+      "r2": 1.0
+    },
+    {
+      "target": "ns_added_per_plant_l",
+      "rows_used": 144,
+      "cv_group_column": "treatment",
+      "cv_group_splits": 5,
+      "mae": 0.034031132368872105,
+      "r2": 0.977082136740341
+    },
+    {
+      "target": "ns_residual_per_plant_l",
+      "rows_used": 144,
+      "cv_group_column": "treatment",
+      "cv_group_splits": 5,
+      "mae": 0.0,
+      "r2": 1.0
+    }
+  ],
+  "ec_to_ns_policy": {
+    "EC3": {
+      "ns_policy": "low",
+      "ec_limit": 5.0
+    },
+    "EC6": {
+      "ns_policy": "high",
+      "ec_limit": 10.0
+    }
+  }
+}

@@ -1,23 +1,39 @@
-import sys
+import importlib.util
 from pathlib import Path
 
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from predict_field_model import predict_yield
-
 ROOT = Path(__file__).resolve().parents[1]
-TIMESERIES_DIR = ROOT / "timeseries prediction"
-if str(TIMESERIES_DIR) not in sys.path:
-    sys.path.insert(0, str(TIMESERIES_DIR))
-
-from predict_growth_model import predict_growth
-
 INTEGRATION_DIR = ROOT / "model integration"
-if str(INTEGRATION_DIR) not in sys.path:
-    sys.path.insert(0, str(INTEGRATION_DIR))
+TIMESERIES_MODEL_PATH = INTEGRATION_DIR / "timeseries model" / "predict_growth_model.py"
+INTEGRATED_MODEL_PATH = INTEGRATION_DIR / "integrated_tomato_model.py"
 
-from integrated_tomato_model import predict_integrated_tomato
+
+def load_function(module_path: Path, module_name: str, function_name: str):
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load {function_name} from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return getattr(module, function_name)
+
+
+predict_growth = load_function(
+    TIMESERIES_MODEL_PATH,
+    "final_timeseries_predict_growth_model",
+    "predict_growth",
+)
+predict_integrated_tomato = load_function(
+    INTEGRATED_MODEL_PATH,
+    "final_integrated_tomato_model",
+    "predict_integrated_tomato",
+)
+predict_yield_tomato = load_function(
+    INTEGRATED_MODEL_PATH,
+    "final_integrated_tomato_yield_model",
+    "predict_yield_tomato",
+)
 
 
 app = FastAPI(title="Tomato Yield Model API")
@@ -85,8 +101,8 @@ def health() -> dict[str, str]:
 
 @app.post("/predict")
 def predict(request: PredictRequest) -> dict[str, float]:
-    prediction = predict_yield(request.model_dump())
-    return {"predicted_yield_kg_per_m2": prediction}
+    prediction = predict_yield_tomato(request.model_dump())
+    return {"predicted_yield_kg_per_m2": prediction["yield_kg_per_m2"]}
 
 
 @app.post("/predict/timeseries")

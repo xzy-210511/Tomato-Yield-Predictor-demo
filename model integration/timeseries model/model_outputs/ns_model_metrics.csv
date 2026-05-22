@@ -1,0 +1,4 @@
+﻿target,rows_used,cv_group_column,cv_group_splits,mae,r2
+ns_new_per_plant_l,144,treatment,5,0.0,1.0
+ns_added_per_plant_l,144,treatment,5,0.034031132368872105,0.977082136740341
+ns_residual_per_plant_l,144,treatment,5,0.0,1.0

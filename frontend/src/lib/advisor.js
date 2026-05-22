@@ -1,4 +1,4 @@
-// Rule engine for the AI Optimization Advisor.
+// Rule engine for the Advisor.
 // Pure JS, no React imports. Tiered severity (critical/high/medium/low/info) with
 // agronomic survival thresholds for each of the 14 yield-form inputs plus cross-field
 // interactions. Returns { suggestions, counts }.
@@ -1129,7 +1129,7 @@ function evalPh(v) {
       id: 'ph.high',
       severity: 'high',
       category: 'pH',
-      title: 'Soil/solution pH out of healthy range',
+      title: 'pH out of healthy range',
       summary: `pH ${fmt(v)} — productive band is 6.0–6.8.`,
       body: 'Outside 5.8–7.2 key nutrients (Fe, P, Mn, Ca) lock out and chlorosis, blossom-end rot, or stunted roots follow.',
       impact: 'Nutrient lockout',
@@ -1370,7 +1370,7 @@ export function deriveBottleneck(form) {
     return { label: 'CO2 Level', desc: 'Low CO2 is limiting photosynthesis.', color: 'blue' }
   }
   if (Number.isFinite(pH) && (pH < 5.8 || pH > 7.2)) {
-    return { label: 'Soil pH', desc: 'pH imbalance is affecting nutrient uptake.', color: 'orange' }
+    return { label: 'pH', desc: 'pH imbalance is affecting nutrient uptake.', color: 'orange' }
   }
   return { label: 'Balanced', desc: 'Metabolic rates are within a healthy range.', color: 'emerald' }
 }
@@ -1382,4 +1382,3 @@ export function deriveYieldClass(predictedYield) {
   if (v < 20) return 'Stable'
   return 'High'
 }
-

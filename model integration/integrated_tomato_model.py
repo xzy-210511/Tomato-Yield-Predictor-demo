@@ -21,11 +21,10 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
 ROOT = Path(__file__).resolve().parent
-TIMESERIES_DIR = ROOT.parent / "timeseries prediction"
+TIMESERIES_DIR = ROOT / "timeseries model"
 YIELD_DIR = ROOT / "yield model"
 YIELD_DATA_PATH = YIELD_DIR / "greenhouse_crop_yields.csv"
 YIELD_MODEL_PATH = YIELD_DIR / "integrated_final_yield_model.joblib"
-YIELD_METRICS_PATH = YIELD_DIR / "integrated_final_yield_metrics.csv"
 
 def load_integrated_growth_predictor():
     module_path = TIMESERIES_DIR / "predict_growth_model.py"
@@ -179,15 +178,26 @@ def train_yield_model() -> tuple[dict[str, Any], pd.DataFrame]:
         "target": TARGET,
     }
     joblib.dump(bundle, YIELD_MODEL_PATH)
-    metrics.to_csv(YIELD_METRICS_PATH, index=False, encoding="utf-8-sig")
     return bundle, metrics
 
 
 def load_or_train_yield_model() -> dict[str, Any]:
     if YIELD_MODEL_PATH.exists():
-        return joblib.load(YIELD_MODEL_PATH)
+        try:
+            return joblib.load(YIELD_MODEL_PATH)
+        except Exception:
+            pass
     bundle, _ = train_yield_model()
     return bundle
+
+
+def predict_yield_value(yield_input: pd.DataFrame) -> float:
+    bundle = load_or_train_yield_model()
+    try:
+        return float(bundle["model"].predict(yield_input)[0])
+    except Exception:
+        bundle, _ = train_yield_model()
+        return float(bundle["model"].predict(yield_input)[0])
 
 
 def map_to_growth_input(data: dict[str, Any]) -> dict[str, Any]:
@@ -275,9 +285,8 @@ def map_to_yield_input(data: dict[str, Any], growth_result: dict[str, Any]) -> p
 
 def predict_integrated_tomato(data: dict[str, Any]) -> dict[str, Any]:
     growth_result = predict_growth(map_to_growth_input(data))
-    yield_bundle = load_or_train_yield_model()
     yield_input = map_to_yield_input(data, growth_result)
-    yield_pred = float(yield_bundle["model"].predict(yield_input)[0])
+    yield_pred = predict_yield_value(yield_input)
 
     result = dict(growth_result)
     result["final_yield_prediction"] = {
@@ -291,6 +300,17 @@ def predict_integrated_tomato(data: dict[str, Any]) -> dict[str, Any]:
         "fertilizer, irrigation, pest, pH, variety, and engineered interactions."
     )
     return result
+
+
+def predict_yield_tomato(data: dict[str, Any]) -> dict[str, Any]:
+    maturity_day = int(get_value(data, "days_to_maturity", "maturity_day", default=66))
+    yield_input = map_to_yield_input(data, {"maturity_day": maturity_day})
+    yield_pred = predict_yield_value(yield_input)
+    return {
+        "yield_kg_per_m2": round(max(yield_pred, 0.0), 3),
+        "model_path": str(YIELD_MODEL_PATH),
+        "dataset": str(YIELD_DATA_PATH),
+    }
 
 
 def print_mapping_design() -> None:

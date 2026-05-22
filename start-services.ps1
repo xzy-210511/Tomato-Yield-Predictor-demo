@@ -9,19 +9,10 @@ $frontendViteBin = Join-Path $frontendDir 'node_modules\.bin\vite.cmd'
 $staticDir = Join-Path $projectRoot 'src\main\resources\static'
 $staticAssetsDir = Join-Path $staticDir 'assets'
 $staticModelsDir = Join-Path $staticDir 'models'
-$timeSeriesDir = Join-Path $projectRoot 'timeseries prediction'
-$timeSeriesCleanedDir = Join-Path $timeSeriesDir 'cleaned_data'
-$timeSeriesModelDir = Join-Path $timeSeriesDir 'model_outputs'
-$timeSeriesCleaningScript = Join-Path $timeSeriesDir 'datacleaning.py'
-$timeSeriesTrainingScript = Join-Path $timeSeriesDir 'timeseries_train.py'
-$timeSeriesModelFile = Join-Path $timeSeriesModelDir 'recursive_growth_forecaster.joblib'
-$timeSeriesMappedNsFile = Join-Path $timeSeriesCleanedDir 'mapped_ns_training_table.csv'
-$timeSeriesCleanedFiles = @(
-    (Join-Path $timeSeriesCleanedDir 'climate_timeseries_clean.csv'),
-    (Join-Path $timeSeriesCleanedDir 'crop_measurements_clean.csv'),
-    (Join-Path $timeSeriesCleanedDir 'destructive_harvest_clean.csv'),
-    $timeSeriesMappedNsFile
-)
+$integrationDir = Join-Path $projectRoot 'model integration'
+$integratedModelScript = Join-Path $integrationDir 'integrated_tomato_model.py'
+$timeSeriesModelFile = Join-Path $integrationDir 'timeseries model\model_outputs\recursive_growth_forecaster.joblib'
+$yieldModelFile = Join-Path $integrationDir 'yield model\integrated_final_yield_model.joblib'
 $pythonExe = Join-Path $pythonServiceDir '.venv\Scripts\python.exe'
 $pythonVenvDir = Join-Path $pythonServiceDir '.venv'
 $pythonRequirements = Join-Path $pythonServiceDir 'requirements.txt'
@@ -119,62 +110,21 @@ if (Test-Path $frontendDir) {
 Write-Host 'Installing Python model dependencies ...'
 & $pythonExe -m pip install -r $pythonRequirements
 
-if (-not (Test-Path $timeSeriesDir)) {
-    Write-Error "Time-series prediction directory not found at $timeSeriesDir"
+if (-not (Test-Path $integrationDir)) {
+    Write-Error "Final model integration directory not found at $integrationDir"
 }
 
-if (-not (Test-Path $timeSeriesCleaningScript)) {
-    Write-Error "Time-series cleaning script not found at $timeSeriesCleaningScript"
+if (-not (Test-Path $integratedModelScript)) {
+    Write-Error "Integrated model script not found at $integratedModelScript"
 }
 
-if (-not (Test-Path $timeSeriesTrainingScript)) {
-    Write-Error "Time-series training script not found at $timeSeriesTrainingScript"
+if (-not (Test-Path $timeSeriesModelFile)) {
+    Write-Error "Time-series model file not found at $timeSeriesModelFile"
 }
 
-$timeSeriesSourceFiles = @(
-    $timeSeriesCleaningScript,
-    $timeSeriesTrainingScript,
-    (Join-Path $timeSeriesDir 'ClimateTimeseries.xlsx'),
-    (Join-Path $timeSeriesDir 'CropMeasurements.xlsx'),
-    (Join-Path $timeSeriesDir 'DestructiveHarvest.xlsx'),
-    (Join-Path $timeSeriesDir 'nsdataset.xlsx')
-) | Where-Object { Test-Path $_ }
-
-$latestTimeSeriesSource = ($timeSeriesSourceFiles | ForEach-Object {
-    (Get-Item $_).LastWriteTimeUtc
-} | Sort-Object -Descending | Select-Object -First 1)
-
-$missingTimeSeriesCleanedFiles = $timeSeriesCleanedFiles | Where-Object { -not (Test-Path $_) }
-$oldestTimeSeriesCleaned = ($timeSeriesCleanedFiles | Where-Object { Test-Path $_ } | ForEach-Object {
-    (Get-Item $_).LastWriteTimeUtc
-} | Sort-Object | Select-Object -First 1)
-
-$needsTimeSeriesCleaning = $missingTimeSeriesCleanedFiles.Count -gt 0 `
-    -or (
-        $latestTimeSeriesSource `
-        -and $oldestTimeSeriesCleaned `
-        -and ($oldestTimeSeriesCleaned -lt $latestTimeSeriesSource)
-    )
-$needsTimeSeriesTraining = -not (Test-Path $timeSeriesModelFile) `
-    -or (
-        $latestTimeSeriesSource `
-        -and (Test-Path $timeSeriesModelFile) `
-        -and ((Get-Item $timeSeriesModelFile).LastWriteTimeUtc -lt $latestTimeSeriesSource)
-    )
-
-if ($needsTimeSeriesCleaning) {
-    Write-Host 'Preparing time-series cleaned data ...'
-    & $pythonExe $timeSeriesCleaningScript
-}
-
-if ($needsTimeSeriesTraining) {
-    if (-not (Test-Path $timeSeriesCleanedDir)) {
-        Write-Host 'Preparing time-series cleaned data ...'
-        & $pythonExe $timeSeriesCleaningScript
-    }
-
-    Write-Host 'Training time-series growth model ...'
-    & $pythonExe $timeSeriesTrainingScript
+if (-not (Test-Path $yieldModelFile)) {
+    Write-Host 'Yield model file not found. Training final yield model once ...'
+    & $pythonExe $integratedModelScript
 }
 
 $pythonCommand = "& '$pythonExe' -m uvicorn api:app --host 127.0.0.1 --port 8001"

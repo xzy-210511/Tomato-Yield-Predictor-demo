@@ -159,7 +159,9 @@ function AdvisorCard({ tip, expanded, onToggle, dark }) {
 
       {expanded && (
         <div className="pl-[60px] space-y-3 animate-in slide-in-from-top-2 fade-in duration-200">
-          <p className={`text-xs leading-relaxed ${bodyColor}`}>{tip.body}</p>
+          {tip.body && (
+            <p className={`text-xs leading-relaxed font-semibold ${bodyColor}`}>{tip.body}</p>
+          )}
           <div className="flex flex-wrap items-center gap-2">
             <span className={`text-[10px] font-black uppercase tracking-widest ${subColor}`}>Impact</span>
             <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md ${colors.chipBg}`}>
@@ -238,7 +240,7 @@ export default function AdvisorPanel({ suggestions = [], dark = false, embed = f
                 <Lightbulb size={20} className="text-amber-400" />
               </>
             )}
-            AI Optimization Advisor
+            Advisor
           </h3>
           <p className={`text-[10px] uppercase tracking-widest font-black mt-2 ${headerSubColor}`}>
             {hasCritical
@@ -263,7 +265,7 @@ export default function AdvisorPanel({ suggestions = [], dark = false, embed = f
 
       {suggestions.length === 0 ? (
         <div className={emptyClass}>
-          Run a simulation to populate AI suggestions.
+          Run a simulation to populate suggestions.
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

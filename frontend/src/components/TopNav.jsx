@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 
 const NAV_ITEMS = [
   { to: '/workspace', label: 'Workspace' },
+  { to: '/growth',    label: 'Growth' },
   { to: '/history',   label: 'History' },
   { to: '/login',     label: 'Login' },
 ]

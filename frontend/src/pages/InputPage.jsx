@@ -40,7 +40,6 @@ import {
 import { predictGrowth, predictIntegrated, predictTimeSeries } from '../api/predict'
 import { createRecord } from '../api/records'
 import { analyzeYieldInput } from '../lib/advisor'
-import { analyzeTimeSeriesInput } from '../lib/timeSeriesAdvisor'
 import {
   buildTimeSeriesCandidates,
   buildTimeSeriesComparison,
@@ -64,7 +63,7 @@ const FIELD_INFO = {
   fertilizerPKgHa: 'Phosphorus. Tip: Crucial for root and flower development.',
   fertilizerKKgHa: 'Potassium. Tip: Important for fruit quality and sugar content.',
   pestSeverity: '0-5 scale. 0 = none, 5 = severe.',
-  pH: 'Soil/solution pH. Ideal: 6.0-6.8.',
+  pH: 'pH. Ideal: 6.0-6.8.',
   variety: 'Tomato variety. Different types have varying yield potentials.',
   startDay: 'Day after transplant where the recursive forecast begins.',
   forecastDays: 'Number of future days to forecast from the selected start day.',
@@ -212,12 +211,12 @@ const PARAMETER_GROUPS = [
     ],
   },
   {
-    title: 'Resource & Soil',
+    title: 'Resource & pH',
     iconComponent: Droplets,
     iconClass: 'text-sky-400',
     fields: [
       { key: 'irrigationMm', label: 'Irrigation', unit: 'mm', min: 0, max: 50, step: 0.1 },
-      { key: 'pH', label: 'Soil pH', unit: '', min: 4, max: 9, step: 0.1 },
+      { key: 'pH', label: 'pH', unit: '', min: 4, max: 9, step: 0.1 },
       { key: 'pestSeverity', label: 'Pest Level', unit: '0-5', min: 0, max: 5, step: 1 },
     ],
   },
@@ -229,16 +228,6 @@ const PARAMETER_GROUPS = [
       { key: 'fertilizerNKgHa', label: 'Nitrogen (N)', unit: 'kg/ha', min: 0, max: 400, step: 1 },
       { key: 'fertilizerPKgHa', label: 'Phosphorus (P)', unit: 'kg/ha', min: 0, max: 400, step: 1 },
       { key: 'fertilizerKKgHa', label: 'Potassium (K)', unit: 'kg/ha', min: 0, max: 400, step: 1 },
-    ],
-  },
-  {
-    title: 'Forecast Setup',
-    iconComponent: TrendingUp,
-    iconClass: 'text-cyan-400',
-    fields: [
-      { key: 'startDay', label: 'Start Day', unit: 'DAT', min: 0, max: 66, step: 1 },
-      { key: 'forecastDays', label: 'Forecast Days', unit: 'days', min: 1, max: 90, step: 1 },
-      { key: 'parLampDaily', label: 'Lamp PAR', unit: 'daily', min: 0, max: 2000, step: 10 },
     ],
   },
 ]
@@ -348,7 +337,7 @@ function AdvisorSummary({ suggestions, onOpen }) {
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-brand-400">
           <Sparkles size={11} className="text-amber-400" />
-          AI Advisor · {suggestions.length}
+          Advisor · {suggestions.length}
         </span>
         <ChevronRight size={12} className="text-slate-500" />
       </div>
@@ -363,6 +352,74 @@ function AdvisorSummary({ suggestions, onOpen }) {
         {counts.info     ? <span className="rounded bg-brand-500/20 px-1.5 py-0.5 text-brand-200">{counts.info} info</span> : null}
       </div>
     </button>
+  )
+}
+
+function getAdvisorPenalty(counts = {}) {
+  return (
+    (counts.critical || 0) * 50 +
+    (counts.high || 0) * 8 +
+    (counts.medium || 0) * 2 +
+    (counts.low || 0) * 0.5
+  )
+}
+
+const OPTIMIZATION_FIELDS = [
+  { key: 'humidityPercent', label: 'Humidity', unit: '%' },
+  { key: 'co2Ppm', label: 'CO2', unit: 'ppm' },
+  { key: 'lightIntensityLux', label: 'Light', unit: 'lux' },
+  { key: 'photoperiodHours', label: 'Light Hours', unit: 'h' },
+  { key: 'irrigationMm', label: 'Water', unit: 'mm' },
+  { key: 'fertilizerNKgHa', label: 'N', unit: 'kg/ha' },
+  { key: 'fertilizerPKgHa', label: 'P', unit: 'kg/ha' },
+  { key: 'fertilizerKKgHa', label: 'K', unit: 'kg/ha' },
+  { key: 'pH', label: 'pH', unit: '' },
+]
+
+function formatOptimizationValue(value, unit) {
+  const number = parseFloat(value)
+  if (!Number.isFinite(number)) return '--'
+  const rounded = unit === 'h' || unit === 'mm' || unit === '' ? number.toFixed(1) : number.toFixed(0)
+  return unit ? `${rounded} ${unit}` : rounded
+}
+
+function buildOptimizationRows(beforePayload, afterPayload) {
+  if (!beforePayload || !afterPayload) return []
+  return OPTIMIZATION_FIELDS.map(field => {
+    const before = beforePayload[field.key]
+    const after = afterPayload[field.key]
+    const changed = Number(parseFloat(before).toFixed(2)) !== Number(parseFloat(after).toFixed(2))
+    return {
+      ...field,
+      before: formatOptimizationValue(before, field.unit),
+      after: formatOptimizationValue(after, field.unit),
+      changed,
+    }
+  }).filter(row => row.changed)
+}
+
+function OptimizationSummary({ currentPayload, recommendedPayload }) {
+  const rows = buildOptimizationRows(currentPayload, recommendedPayload)
+  return (
+    <div className="rounded-2xl border border-ink-700 bg-ink-900/40 p-3">
+      <p className="text-[10px] font-black uppercase tracking-widest text-brand-400">
+        Yield Optimization
+      </p>
+      {rows.length ? (
+        <div className="mt-2 space-y-1.5">
+          {rows.slice(0, 5).map(row => (
+            <div key={row.key} className="grid grid-cols-[1fr_auto] gap-2 rounded-xl border border-brand-500/25 bg-brand-500/10 px-3 py-2 text-xs">
+              <span className="font-black uppercase tracking-widest text-slate-300">{row.label}</span>
+              <span className="font-black tabular-nums text-brand-400">{row.before} → {row.after}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-2 text-xs font-bold leading-snug text-slate-500">
+          Current environment is the best tested setup.
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -482,7 +539,7 @@ export default function InputPage() {
       return { label: 'CO2 Level', desc: 'Low CO2 is limiting photosynthesis.', icon: <Wind />, color: 'blue' }
     }
     if (parseFloat(f.pH) < 5.8 || parseFloat(f.pH) > 7.2) {
-      return { label: 'Soil pH', desc: 'pH imbalance is affecting nutrient uptake.', icon: <Gauge />, color: 'orange' }
+      return { label: 'pH', desc: 'pH imbalance is affecting nutrient uptake.', icon: <Gauge />, color: 'orange' }
     }
     return { label: 'Balanced', desc: 'Metabolic rates are within a healthy range.', icon: <CheckCircle2 />, color: 'emerald' }
   }, [result, form])
@@ -548,15 +605,6 @@ export default function InputPage() {
     }
   }, [timeSeriesChartData])
 
-  const timeSeriesAdvisorSuggestions = useMemo(() => {
-    if (!timeSeriesResult?.predictions) return []
-    return analyzeTimeSeriesInput(
-      displayedTimeSeriesForm,
-      timeSeriesResult.predictions,
-      trajectoryStats
-    ).suggestions
-  }, [displayedTimeSeriesForm, timeSeriesResult, trajectoryStats])
-
   const saveRecord = async ({ recordType, input, output, summaryValue }) => {
     if (!userId) return
     try {
@@ -574,47 +622,33 @@ export default function InputPage() {
 
   const handlePredict = async () => {
     setLoading(true)
-    setTimeSeriesLoading(true)
     setError('')
     setResult(null)
     setTimeSeriesResult(null)
     setBestYield(null)
     setBestGrowth(null)
     try {
-      const payload = buildIntegratedPayload(form)
+      const payload = buildYieldPayload(form)
       if (!payload) {
-        throw new Error('Please enter valid values before running the integrated prediction.')
+        throw new Error('Please enter valid values before running the yield prediction.')
       }
-      const response = await predictIntegrated(payload)
-      const yieldResponse = normalizeYieldResponse(response?.final_yield_prediction || response)
-      if (yieldResponse && yieldResponse.predicted_yield_kg_per_m2 !== undefined && Array.isArray(response?.predictions)) {
-        const yieldPayload = buildYieldPayload(form)
-        const growthPayload = buildTimeSeriesPayload(displayedTimeSeriesForm)
-        setResult({ response: yieldResponse, payload: yieldPayload })
-        setTimeSeriesResult(response)
+      const yieldResponse = normalizeYieldResponse(await predictGrowth(payload))
+      if (yieldResponse && yieldResponse.predicted_yield_kg_per_m2 !== undefined) {
+        setResult({ response: yieldResponse, payload })
         await saveRecord({
           recordType: 'yield',
-          input: yieldPayload,
+          input: payload,
           output: yieldResponse,
           summaryValue: yieldResponse.predicted_yield_kg_per_m2,
         })
-        const summary = summarizeTimeSeriesResponse(response)
-        await saveRecord({
-          recordType: 'timeseries',
-          input: growthPayload,
-          output: { ...response, summary },
-          summaryValue: summary.finalPlantHeight,
-        })
-        handleFindBestYield(yieldPayload, yieldResponse)
-        handleFindBestGrowth(displayedTimeSeriesForm, response)
+        handleFindBestYield(payload, yieldResponse)
       } else {
-        throw new Error('Invalid integrated response format.')
+        throw new Error('Invalid yield response format.')
       }
     } catch (e) {
-      setError(e.message || 'Integrated prediction failed.')
+      setError(e.message || 'Yield prediction failed.')
     } finally {
       setLoading(false)
-      setTimeSeriesLoading(false)
     }
   }
 
@@ -627,12 +661,15 @@ export default function InputPage() {
     setBestYield(null)
     try {
       const currentYield = sourceResponse.predicted_yield_kg_per_m2
+      const currentAdvisor = analyzeYieldInput(sourcePayload, currentYield)
+      const currentAdvisorPenalty = getAdvisorPenalty(currentAdvisor.counts)
       const candidates = buildYieldCandidates(sourcePayload)
       let best = {
         label: 'Current input',
         payload: sourcePayload,
-        changes: ['No better tested combination found.'],
+        changes: ['Current input performed best among the tested environment combinations.'],
         predictedYield: currentYield,
+        adjustedScore: currentYield - currentAdvisorPenalty,
       }
 
       for (let i = 0; i < candidates.length; i += 1) {
@@ -643,12 +680,20 @@ export default function InputPage() {
         } catch {
           continue
         }
-        if (response && response.predicted_yield_kg_per_m2 > best.predictedYield) {
+        if (!response || response.predicted_yield_kg_per_m2 === undefined) continue
+
+        const predictedYield = response.predicted_yield_kg_per_m2
+        const advisor = analyzeYieldInput(candidate.payload, predictedYield)
+        const advisorPenalty = getAdvisorPenalty(advisor.counts)
+        const adjustedScore = predictedYield - advisorPenalty - (candidate.changeCount || 0) * 0.05
+
+        if (adjustedScore > best.adjustedScore) {
           best = {
             label: candidate.label,
             payload: candidate.payload,
             changes: candidate.changes,
-            predictedYield: response.predicted_yield_kg_per_m2,
+            predictedYield,
+            adjustedScore,
           }
         }
       }
@@ -703,7 +748,7 @@ export default function InputPage() {
       let best = {
         label: 'Current input',
         payload: buildTimeSeriesPayload(sourceForm),
-        changes: ['No better tested combination found.'],
+        changes: ['Current input performed best among the tested growth environment combinations.'],
         points: currentPoints,
         summary: currentSummary,
       }
@@ -754,7 +799,7 @@ export default function InputPage() {
     ['replace', 'add'].includes(point.nsAction)
   )
 
-  const yieldRun = activeWorkflow === 'yield'
+  const yieldRun = true
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-hero-radial text-slate-100">
@@ -784,10 +829,10 @@ export default function InputPage() {
                   <div className="mb-3 flex items-center justify-between">
                     <div>
                       <p className="text-[10px] font-black uppercase tracking-[0.22em] text-brand-500">
-                        Integrated Model
+                        Yield Model
                       </p>
                       <p className="mt-1 text-xs font-bold text-slate-500">
-                        One input set drives yield and growth.
+                        Yield inputs and optimization only.
                       </p>
                     </div>
                     <button
@@ -833,47 +878,17 @@ export default function InputPage() {
                       </select>
                     </CollapsibleGroup>
 
-                    <CollapsibleGroup id="integrated-treatment" title="Treatment" icon={Activity} iconClass="text-brand-400">
-                      <div className="space-y-3">
-                        <div>
-                          <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                            EC Level
-                          </label>
-                          <select
-                            value={form.ec}
-                            onChange={(e) => updateField('ec', e.target.value)}
-                            className="w-full rounded-2xl border border-ink-700 bg-ink-850/80 p-3 text-sm font-bold text-slate-100 outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
-                          >
-                            {['EC3', 'EC6'].map(v => <option key={v} value={v}>{v}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                            Light Treatment
-                          </label>
-                          <select
-                            value={form.light}
-                            onChange={(e) => updateField('light', e.target.value)}
-                            className="w-full rounded-2xl border border-ink-700 bg-ink-850/80 p-3 text-sm font-bold text-slate-100 outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
-                          >
-                            {['high light', 'med light', 'low light', 'no light'].map(v => (
-                              <option key={v} value={v}>{v}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                    </CollapsibleGroup>
                   </div>
                 </div>
 
                 <div className="border-t border-ink-700/60 p-3">
                   <button
                     onClick={handlePredict}
-                    disabled={loading || timeSeriesLoading}
+                    disabled={loading}
                     className="flex w-full items-center justify-center gap-2 rounded-full bg-brand-600 py-3 text-[11px] font-black uppercase tracking-[0.22em] text-white transition-colors hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {loading || timeSeriesLoading ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                    {loading || timeSeriesLoading ? 'Processing…' : 'Run Integrated Prediction'}
+                    {loading ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                    {loading ? 'Processing...' : 'Run Yield Prediction'}
                   </button>
                 </div>
               </div>
@@ -890,32 +905,8 @@ export default function InputPage() {
                 <div className="border-b border-ink-700/60 px-4 py-3">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-[10px] font-black uppercase tracking-[0.22em] text-brand-500">
-                      {yieldRun ? 'Yield Result' : 'Growth Result'}
+                      Yield Result
                     </p>
-                    <div className="grid shrink-0 grid-cols-2 rounded-full border border-ink-700 bg-ink-950/50 p-0.5">
-                      {[
-                        { value: 'yield', label: 'Yield', icon: TrendingUp },
-                        { value: 'growth', label: 'Growth', icon: Leaf },
-                      ].map(option => {
-                        const Icon = option.icon
-                        const active = activeWorkflow === option.value
-                        return (
-                          <button
-                            key={option.value}
-                            type="button"
-                            onClick={() => setActiveWorkflow(option.value)}
-                            className={`flex items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-colors ${
-                              active
-                                ? 'bg-brand-600 text-white'
-                                : 'text-slate-500 hover:text-brand-400'
-                            }`}
-                          >
-                            <Icon size={11} />
-                            {option.label}
-                          </button>
-                        )
-                      })}
-                    </div>
                   </div>
                 </div>
 
@@ -976,6 +967,12 @@ export default function InputPage() {
                           onOpen={() => setAdvisorOpen(true)}
                         />
                       ) : null}
+                      {result && bestYield ? (
+                        <OptimizationSummary
+                          currentPayload={result.payload}
+                          recommendedPayload={bestYield.best.payload}
+                        />
+                      ) : null}
                     </>
                   ) : (
                     <>
@@ -1033,12 +1030,6 @@ export default function InputPage() {
                         </div>
                       ) : null}
 
-                      {timeSeriesResult ? (
-                        <AdvisorSummary
-                          suggestions={timeSeriesAdvisorSuggestions}
-                          onOpen={() => setAdvisorOpen(true)}
-                        />
-                      ) : null}
                     </>
                   )}
                 </div>
@@ -1047,10 +1038,10 @@ export default function InputPage() {
                   <button
                     type="button"
                     onClick={() => setCompareOpen(true)}
-                    disabled={yieldRun ? !bestYield : !bestGrowth}
+                    disabled={!bestYield}
                     className="flex flex-1 items-center justify-center gap-1.5 rounded-full border border-ink-700 bg-ink-900/60 px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-300 transition-colors hover:border-brand-500 hover:text-brand-400 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {(yieldRun ? bestYieldLoading : bestGrowthLoading) ? (
+                    {bestYieldLoading ? (
                       <RefreshCw size={12} className="animate-spin" />
                     ) : (
                       <GitCompare size={12} />
@@ -1058,60 +1049,6 @@ export default function InputPage() {
                     Compare
                   </button>
                 </div>
-              </div>
-
-              {/* Sparkline column docked below the output panel */}
-              <div
-                className="pointer-events-auto shrink-0"
-                onMouseDown={(e) => e.stopPropagation()}
-                onTouchStart={(e) => e.stopPropagation()}
-              >
-                {timeSeriesChartData.length > 0 ? (
-                  <div className="rounded-3xl border border-ink-700 bg-ink-900/82 p-2 backdrop-blur-xl shadow-[0_24px_60px_-24px_rgba(0,0,0,0.7)]">
-                    <div className="flex flex-col gap-2">
-                      <SparklineCard
-                        label="Plant Height"
-                        value={finalTimeSeriesPoint ? finalTimeSeriesPoint.plantHeightCm.toFixed(1) : '—'}
-                        unit="cm"
-                        data={timeSeriesChartData}
-                        dataKey="plantHeightCm"
-                        color="#22c55e"
-                        onExpand={() => setDetailOpen('height')}
-                        loading={timeSeriesLoading}
-                      />
-                      <SparklineCard
-                        label="Leaf Count"
-                        value={finalTimeSeriesPoint ? finalTimeSeriesPoint.numLeaves.toFixed(1) : '—'}
-                        unit="leaves"
-                        data={timeSeriesChartData}
-                        dataKey="numLeaves"
-                        color="#38bdf8"
-                        onExpand={() => setDetailOpen('leaf')}
-                        loading={timeSeriesLoading}
-                      />
-                      <SparklineCard
-                        label="NS Supply"
-                        value={timeSeriesChartData.length ? totalNsSupply.toFixed(2) : '—'}
-                        unit="L/plant"
-                        data={trajectoryStats?.cumulativeNs}
-                        dataKey="cum"
-                        color="#fb923c"
-                        onExpand={() => setDetailOpen('ns')}
-                        loading={timeSeriesLoading}
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setActiveWorkflow('growth')}
-                    className="group flex w-full items-center justify-center gap-2 rounded-full border border-ink-700 bg-ink-900/80 px-5 py-2 text-[10px] font-black uppercase tracking-[0.22em] text-slate-400 backdrop-blur-xl transition-colors hover:border-brand-500/70 hover:text-brand-400"
-                  >
-                    <Leaf size={12} className="text-brand-500" />
-                    View growth result
-                    <ChevronRight size={12} className="transition-transform group-hover:translate-x-0.5" />
-                  </button>
-                )}
               </div>
 
               </div>
@@ -1134,7 +1071,7 @@ export default function InputPage() {
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.22em] text-brand-500">Compare</p>
                 <p className="text-sm font-black text-slate-100">
-                  {yieldRun ? 'Yield Before vs After' : 'Growth Before vs After'}
+                  Yield Before vs After
                 </p>
               </div>
               <button
@@ -1392,7 +1329,7 @@ export default function InputPage() {
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.22em] text-brand-500">Advisor</p>
                 <p className="text-sm font-black text-slate-100">
-                  {yieldRun ? 'Yield Optimization Tips' : 'Time-Series Optimization Tips'}
+                  Yield Optimization Tips
                 </p>
               </div>
               <button
@@ -1404,11 +1341,7 @@ export default function InputPage() {
               </button>
             </div>
             <div className="scrollbar-thin flex-1 overflow-y-auto p-5">
-              <AdvisorPanel
-                suggestions={yieldRun ? advisorSuggestions : timeSeriesAdvisorSuggestions}
-                dark
-                embed
-              />
+              <AdvisorPanel suggestions={advisorSuggestions} dark embed />
             </div>
           </div>
         </div>

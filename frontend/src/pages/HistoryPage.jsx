@@ -1002,7 +1002,7 @@ export default function HistoryPage() {
                                   <DetailItem label="Type" value={getRecordType(item.input, item)} />
                                   <DetailItem label="EC / Variety" value={item.input?.variety ?? item.input?.ec ?? '-'} />
                                   <DetailItem label="Pest / Light" value={item.input?.pestSeverity ?? item.input?.light ?? '-'} />
-                                  <DetailItem label="Soil pH" value={item.input?.pH ?? '-'} />
+                                  <DetailItem label="pH" value={item.input?.pH ?? '-'} />
                                 </div>
                               </div>
 

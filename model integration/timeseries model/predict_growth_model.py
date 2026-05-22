@@ -22,10 +22,15 @@ class RecursiveGrowthForecaster:
 
         self.bundle = joblib.load(self.model_path)
         self.models = self.bundle["models"]
+        self.ns_models = self.bundle.get("ns_models", {})
         self.numeric_features = self.bundle["numeric_features"]
         self.categorical_features = self.bundle["categorical_features"]
+        self.ns_numeric_features = self.bundle.get("ns_numeric_features", [])
+        self.ns_categorical_features = self.bundle.get("ns_categorical_features", [])
         self.feature_columns = self.numeric_features + self.categorical_features
+        self.ns_feature_columns = self.ns_numeric_features + self.ns_categorical_features
         self.initial_state_by_treatment = self.bundle.get("initial_state_by_treatment", {})
+        self.ec_to_ns_policy = self.bundle.get("ec_to_ns_policy", {})
         self.default_maturity_day = int(
             self.bundle.get("default_maturity_day", DEFAULT_MATURITY_DAY)
         )
@@ -61,6 +66,8 @@ class RecursiveGrowthForecaster:
                     "t_air_mean": t_air_mean,
                     "rh_mean": rh_mean,
                     "co2_mean": co2_mean,
+                    "par_lamp_daily": par_lamp_daily,
+                    "light_on_hours_daily": light_on_hours_daily,
                     "par_lamp_sum": elapsed * par_lamp_daily,
                     "light_on_hours": elapsed * light_on_hours_daily,
                     "t_air_mean_7d": t_air_mean * recent_days,
@@ -76,6 +83,66 @@ class RecursiveGrowthForecaster:
         return {
             "plant_height_cm": round(max(height, 0.0), 3),
             "num_leaves": round(max(leaves, 0.0), 3),
+        }
+
+    @staticmethod
+    def _ns_environment_row(env_row: dict[str, Any]) -> dict[str, Any]:
+        ns_row = dict(env_row)
+        day = max(int(ns_row["days_after_transplant"]), 0)
+        recent_days = min(7, day)
+        par_lamp_daily = float(ns_row.get("par_lamp_daily", 0.0))
+        light_on_hours_daily = float(ns_row.get("light_on_hours_daily", 0.0))
+        ns_row["par_lamp_sum"] = day * par_lamp_daily
+        ns_row["light_on_hours"] = day * light_on_hours_daily
+        ns_row["t_air_mean_7d"] = float(ns_row.get("t_air_mean", 0.0)) * recent_days
+        ns_row["par_lamp_sum_7d"] = par_lamp_daily * recent_days
+        return ns_row
+
+    def _predict_ns(
+        self,
+        env_row: dict[str, Any],
+        ec: str,
+        light: str,
+        plant_height_cm: float,
+        num_leaves: float,
+    ) -> dict[str, Any]:
+        if not self.ns_models:
+            return {}
+        if ec not in self.ec_to_ns_policy:
+            raise ValueError(f"No NS policy mapping found for ec={ec!r}.")
+
+        ns_row = {
+            **self._ns_environment_row(env_row),
+            "plant_height_cm": plant_height_cm,
+            "num_leaves": num_leaves,
+            "ec": ec,
+            "light": light,
+            **self.ec_to_ns_policy[ec],
+        }
+        features = pd.DataFrame([ns_row])[self.ns_feature_columns]
+        values = {
+            target: round(max(float(model.predict(features)[0]), 0.0), 3)
+            for target, model in self.ns_models.items()
+        }
+        ns_new = values.get("ns_new_per_plant_l", 0.0)
+        ns_added = values.get("ns_added_per_plant_l", 0.0)
+
+        if ns_new > 0.05:
+            action = "replace"
+            recommendation = f"Replace solution and add {ns_new:g} L fresh nutrient solution per plant"
+        elif ns_added > 0.05:
+            action = "add"
+            recommendation = f"Add {ns_added:g} L nutrient solution per plant"
+        else:
+            action = "none"
+            recommendation = "No nutrient solution addition scheduled"
+
+        return {
+            **values,
+            "ns_policy": ns_row["ns_policy"],
+            "ec_limit": float(ns_row["ec_limit"]),
+            "ns_action": action,
+            "ns_recommendation": recommendation,
         }
 
     def predict(self, input_data: dict[str, Any]) -> dict[str, Any]:
@@ -100,11 +167,30 @@ class RecursiveGrowthForecaster:
         current_height = float(initial_state["plant_height_cm"])
         current_leaves = float(initial_state["num_leaves"])
 
+        forecast_start_day = max(start_day, initial_day)
+        pre_initial_predictions: list[dict[str, Any]] = []
         if start_day < initial_day:
-            raise ValueError(
-                f"start_day={start_day} is earlier than the available initial state "
-                f"day {initial_day} for ec={ec!r}, light={light!r}."
+            pre_initial_environment = self._build_locked_environment_series(
+                start_day=start_day - 1,
+                maturity_day=initial_day - 1,
+                environment=environment,
             )
+            for env_row in pre_initial_environment:
+                pre_initial_predictions.append(
+                    {
+                        "days_after_transplant": int(env_row["days_after_transplant"]),
+                        "plant_height_cm": round(current_height, 3),
+                        "num_leaves": round(current_leaves, 3),
+                        **self._predict_ns(
+                            env_row,
+                            ec,
+                            light,
+                            current_height,
+                            current_leaves,
+                        ),
+                        "source": "ns_prediction_before_default_initial_state",
+                    }
+                )
 
         if initial_day < start_day:
             warmup_environment = self._build_locked_environment_series(
@@ -125,16 +211,35 @@ class RecursiveGrowthForecaster:
                 current_leaves = warmup_prediction["num_leaves"]
 
         daily_environment = self._build_locked_environment_series(
-            start_day=start_day,
+            start_day=forecast_start_day,
             maturity_day=maturity_day,
             environment=environment,
         )
 
         predictions: list[dict[str, Any]] = [
+            *pre_initial_predictions,
             {
-                "days_after_transplant": start_day,
+                "days_after_transplant": forecast_start_day,
                 "plant_height_cm": round(current_height, 3),
                 "num_leaves": round(current_leaves, 3),
+                **self._predict_ns(
+                    {
+                        "days_after_transplant": forecast_start_day,
+                        "t_air_mean": float(environment["t_air_mean"]),
+                        "rh_mean": float(environment["rh_mean"]),
+                        "co2_mean": float(environment["co2_mean"]),
+                        "par_lamp_daily": float(environment["par_lamp_daily"]),
+                        "light_on_hours_daily": float(environment["light_on_hours_daily"]),
+                        "par_lamp_sum": 0.0,
+                        "light_on_hours": 0.0,
+                        "t_air_mean_7d": 0.0,
+                        "par_lamp_sum_7d": 0.0,
+                    },
+                    ec,
+                    light,
+                    current_height,
+                    current_leaves,
+                ),
                 "source": "provided_initial_state"
                 if "initial_state" in input_data
                 else "model_warmup_from_default_initial_state",
@@ -154,6 +259,13 @@ class RecursiveGrowthForecaster:
                 {
                     "days_after_transplant": int(env_row["days_after_transplant"]),
                     **prediction,
+                    **self._predict_ns(
+                        env_row,
+                        ec,
+                        light,
+                        prediction["plant_height_cm"],
+                        prediction["num_leaves"],
+                    ),
                 }
             )
             current_height = prediction["plant_height_cm"]
@@ -172,10 +284,13 @@ class RecursiveGrowthForecaster:
 
 
 _FORECASTER: RecursiveGrowthForecaster | None = None
+_FORECASTER_MTIME: float | None = None
 
 
 def predict_growth(input_data: dict[str, Any]) -> dict[str, Any]:
-    global _FORECASTER
-    if _FORECASTER is None:
+    global _FORECASTER, _FORECASTER_MTIME
+    model_mtime = MODEL_PATH.stat().st_mtime
+    if _FORECASTER is None or _FORECASTER_MTIME != model_mtime:
         _FORECASTER = RecursiveGrowthForecaster()
+        _FORECASTER_MTIME = model_mtime
     return _FORECASTER.predict(input_data)
